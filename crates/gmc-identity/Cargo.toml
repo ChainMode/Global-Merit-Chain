@@ -1,0 +1,23 @@
+[package]
+name = "gmc-identity"
+version = "0.0.0"
+description = "Pure-logic identity & account layer for the GMC (Global Merit Chain) protocol. Scheme-agnostic; sits atop gmc-core and defers real cryptography to gmc-node."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints.rust]
+# Keep the placeholder skeleton quiet until modules are filled in by later tasks.
+missing_docs = "allow"
+
+[dependencies]
+# gmc-identity is a pure-logic library layered on gmc-core. It depends ONLY on
+# gmc-core's FayID string contract and MeritPocket (integration seam) and MUST NOT
+# pull in any networking / real-cryptography crates. Real Ed25519 is injected by
+# gmc-node through the Signer / Verifier trait seam (task 4.x).
+gmc-core = { path = "../gmc-core" }
+
+[dev-dependencies]
+# Property-based testing harness, wired up so the test infrastructure is ready.
+# The shared generator skeleton itself is task 1.3 — not implemented in task 1.1.
+proptest = { workspace = true }

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 47a565ce21aeabff1c9c765c62b3982df7dbeeca3628a95f89924b0eaada36a2 # shrinks to ops = [Attach { cofay: "id-10", owner: "id-5" }, Attach { cofay: "id-5", owner: "id-11" }, Attach { cofay: "id-0", owner: "id-19" }, Attach { cofay: "id-19", owner: "id-5" }, Reparent { cofay: "id-5", new_owner: "id-0" }]

@@ -22,3 +22,7 @@ AGENTS.md
 # 注意：.gitignore 不影响已跟踪文件。本仓历史上有 4 个
 # `.kiro/specs/gmc-core-protocol/**` 文件被跟踪（阶段 1 归档后成为待提交删除），
 # 依 PO 裁定 D-3 一并提交删除。
+
+# iAccord 本体/安装包:本体与 *.tar.gz 安装包只放体系根 .iaccord/(不在任何 repo 内)。
+# 这条是防御性的 —— 万一本仓将来自带一份 .iaccord/,也不得进 github repo。
+.iaccord/
