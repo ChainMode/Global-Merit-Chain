@@ -109,7 +109,7 @@ const MAX_EXP_ITERS: i64 = 1_000;
 ///
 /// Returns a value in `[0, 1]` for `y ≥ 0`. See the module docs for the algorithm
 /// and its determinism guarantees. Pure `i128` arithmetic only.
-fn exp_neg(y: Decimal) -> Decimal {
+pub fn exp_neg(y: Decimal) -> Decimal {
     // Domain guard: decay uses y = λ·t ≥ 0. At y = 0 (t = 0) there is no decay.
     if y.raw() <= 0 {
         return Decimal::ONE;

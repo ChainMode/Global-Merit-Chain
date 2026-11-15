@@ -38,11 +38,13 @@
 //! therefore the signature.
 
 use crate::authority::{authorizes, DelegateStore};
+use crate::device::{DeviceId, DeviceRegistry};
 use crate::error::{IdentityError, IdentityResult};
-use crate::identity_id::{derive_identity_id, IdentityId};
+use crate::identity_id::IdentityId;
 use crate::identity_service::IdentityService;
 use crate::ownership::{OwnerKind, OwnerRef, OwnershipRegistry};
 use crate::pocket::PocketBinding;
+use crate::recovery::{RecoveryService, RotationRecord};
 use crate::scheme::SchemeRegistry;
 use crate::signer::Verifier;
 use crate::types::{DeviceType, Nonce, SchemeTag, Signature, Timestamp, VerifyingKey};
@@ -370,12 +372,10 @@ pub fn canonical_encode_operation(
 /// The outcome of a successfully-authenticated [`IdentityState::apply`] (design
 /// *Identity_Core* `apply` → `Result<Applied, IdentityError>`).
 ///
-/// Task 11.2 wires the **delegate** payload effects (`AddDelegate` / `RevokeDelegate`)
-/// and task 11.3 wires the **coFay creation** effect (`CreateCoFay`) fully through to
-/// their collaborators; the remaining payload effects are owned by later tasks and
-/// surface here as [`Applied::Deferred`] (see [`IdentityState::apply`]). Distinguishing
-/// the outcomes lets callers (and tests) tell a committed change apart from an
-/// authenticated-but-not-yet-applied operation.
+/// Every [`OperationPayload`] variant is wired atomically through its owning collaborator
+/// (`DelegateStore`, `IdentityService`, `DeviceRegistry`, `RecoveryService`), advancing
+/// `applied_nonce` on commit and leaving the entire aggregate byte-for-byte unchanged on
+/// any error (`align-identity-with-fayid-authority` `OQ-5`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Applied {
     /// An `AddDelegate` payload committed: the delegate key is now Active on the target
@@ -385,21 +385,26 @@ pub enum Applied {
     /// target (Requirement 7.3) and the target's `applied_nonce` was bumped (5.5).
     DelegateRevoked,
     /// A `CreateCoFay` payload committed: a new coFay was created beneath the target
-    /// owner (its `IdentityId` derived, attached under the owner, a `CoFay`-kind record
-    /// stored, and its own MeritPocket bound — Requirements 6.1, 6.7) and the **owner's**
-    /// `applied_nonce` was bumped (Requirement 5.5). The newly-created coFay's
-    /// `IdentityId` is carried so callers can locate it.
+    /// owner and the **owner's** `applied_nonce` was bumped (Requirement 5.5).
     CoFayCreated(IdentityId),
-    /// The operation passed the **entire** validation chain (scheme → format → verify →
-    /// authorize → identity-match → nonce) but its payload effect is owned by a later
-    /// task — `EnrollDevice` / `RevokeDevice` by task 13, and `RotateKey` /
-    /// `ConfigureGuardians` / `RecoveryApproval` by task 14.
-    ///
-    /// To preserve the **atomic / no-partial-write** guarantee (Requirement 13.4), a
-    /// deferred operation changes **nothing**: no payload effect *and* no
-    /// `applied_nonce` bump. The nonce is intentionally left unconsumed so the operation
-    /// can be re-submitted unchanged once the owning task lands its commit.
-    Deferred,
+    /// An `EnrollDevice` payload committed: the device credential is now `Active` under
+    /// the target identity and `applied_nonce` was bumped.
+    DeviceEnrolled(DeviceId),
+    /// A `RevokeDevice` payload committed: the device credential is now `Revoked`
+    /// (idempotently) and `applied_nonce` was bumped.
+    DeviceRevoked,
+    /// A `RotateKey` payload committed: `active_key` swapped to `new_key`, prior key
+    /// retired, `IdentityId` preserved unchanged, and `applied_nonce` bumped.
+    KeyRotated(RotationRecord),
+    /// A `ConfigureGuardians` payload committed: M-of-N guardian set stored for the
+    /// target `iFay` and `applied_nonce` bumped.
+    GuardiansConfigured,
+    /// A valid guardian `RecoveryApproval` was recorded toward `threshold` (`approvals < threshold`),
+    /// leaving `active_key` unchanged until threshold is reached and advancing `applied_nonce`.
+    RecoveryApprovalRecorded { approvals: usize, threshold: u32 },
+    /// A guardian `RecoveryApproval` reached M-of-N `threshold`, rotating `active_key`
+    /// while preserving `IdentityId` invariance and advancing `applied_nonce`.
+    RecoveryCompleted(RotationRecord),
 }
 
 /// The aggregate identity state `Identity_Core` validates against and commits into
@@ -455,6 +460,10 @@ pub struct IdentityState {
     pub delegates: DelegateStore,
     /// One-to-one `IdentityId` ↔ `MeritPocket` binding.
     pub binding: PocketBinding,
+    /// Per-identity terminal device credentials (`Active` / `Revoked`).
+    pub devices: DeviceRegistry,
+    /// Key-rotation history, guardian configurations, and M-of-N recovery sessions.
+    pub recovery: RecoveryService,
 }
 
 impl IdentityState {
@@ -550,38 +559,63 @@ impl IdentityState {
         // failure returns before any mutation (Requirement 5.3).
         op.verify_signature(&self.registry, verifier)?;
 
-        // (2) Authorization (Requirements 7.4, 11.4, 13.3). Derive the actor id from the
-        // authenticated key; `derive_identity_id` re-runs the same scheme/format checks
-        // `verify_signature` already passed, so on this path it succeeds — a defensive
-        // `Err` simply means the actor matches no own-state identity.
-        let actor_id = derive_identity_id(&self.registry, &op.scheme_tag, &op.verifying_key);
-        let own_state = matches!(&actor_id, Ok(id) if *id == op.declared_target)
-            && self
-                .identities
-                .get(&op.declared_target)
-                .is_some_and(|identity| {
-                    identity.active_key == op.verifying_key
-                        && !identity.retired_keys.contains(&op.verifying_key)
-                });
-        let on_behalf = authorizes(
-            &op.declared_target,
-            &op.scheme_tag,
-            &op.verifying_key,
-            &self.registry,
-            &self.ownership,
-            &self.delegates,
-        );
-        if !(own_state || on_behalf) {
-            return Err(IdentityError::UnauthorizedActor);
-        }
-
-        // (3) Identity match (Requirement 13.2): the declared target must be a registered
-        // identity this layer knows — otherwise it is inconsistent with the identity the
-        // authenticated key belongs to / is authorized for. Reading the record here also
-        // guarantees the nonce read in (4) and the commit in (5) have a target to act on.
-        let applied_nonce = match self.identities.get(&op.declared_target) {
-            Some(identity) => identity.applied_nonce,
-            None => return Err(IdentityError::IdentityMismatch),
+        // (2) Authorization & (3) Identity match (Requirements 7.4, 9.3, 11.4, 12.1, 13.2, 13.3).
+        let applied_nonce = match &op.payload {
+            OperationPayload::RecoveryApproval { guardian_key, .. } => {
+                // Guardian recovery approvals MUST be signed by the approving guardian key itself.
+                if &op.verifying_key != guardian_key {
+                    return Err(IdentityError::UnauthorizedActor);
+                }
+                let Some(identity) = self.identities.get(&op.declared_target) else {
+                    return Err(IdentityError::IdentityMismatch);
+                };
+                let Some(cfg) = self.recovery.guardian_config(&op.declared_target) else {
+                    return Err(IdentityError::IdentityMismatch);
+                };
+                if !cfg.is_guardian(guardian_key) {
+                    return Err(IdentityError::UnauthorizedActor);
+                }
+                identity.applied_nonce
+            }
+            _ => {
+                // Note: `IdentityId` is invariant across key rotation (Requirement 11.2), so
+                // own-state checks `identity.active_key == op.verifying_key` under the
+                // identity's scheme rather than re-deriving `IdentityId` from `op.verifying_key`.
+                let own_state = self
+                    .identities
+                    .get(&op.declared_target)
+                    .is_some_and(|identity| {
+                        identity.scheme_tag == op.scheme_tag
+                            && identity.active_key == op.verifying_key
+                            && !identity.retired_keys.contains(&op.verifying_key)
+                    });
+                let active_device = self
+                    .devices
+                    .is_active_device(&op.declared_target, &op.verifying_key)
+                    && !matches!(
+                        op.payload,
+                        OperationPayload::RotateKey { .. }
+                            | OperationPayload::ConfigureGuardians { .. }
+                    );
+                let on_behalf = authorizes(
+                    &op.declared_target,
+                    &op.scheme_tag,
+                    &op.verifying_key,
+                    &self.registry,
+                    &self.ownership,
+                    &self.delegates,
+                ) && !matches!(
+                    op.payload,
+                    OperationPayload::ConfigureGuardians { .. }
+                );
+                if !(own_state || active_device || on_behalf) {
+                    return Err(IdentityError::UnauthorizedActor);
+                }
+                match self.identities.get(&op.declared_target) {
+                    Some(identity) => identity.applied_nonce,
+                    None => return Err(IdentityError::IdentityMismatch),
+                }
+            }
         };
 
         // (4) Nonce replay guard (Requirement 5.4): strictly-greater-than monotonicity.
@@ -589,10 +623,8 @@ impl IdentityState {
             return Err(IdentityError::ReplayDetected);
         }
 
-        // (5) Single atomic commit. Every precondition above has passed, so from here we
-        // perform exactly one state change and advance the applied nonce (Requirement
-        // 5.5). The delegate mutations are infallible, so there is no partial-write
-        // window; deferred payloads mutate nothing and leave the nonce unconsumed.
+        // (5) Single atomic commit across all 8 OperationPayload variants (`OQ-5`).
+        // All fallible payload checks execute BEFORE mutating any state or advancing `applied_nonce`.
         match &op.payload {
             OperationPayload::AddDelegate { delegate } => {
                 self.delegates.add_delegate(&op.declared_target, delegate)?;
@@ -605,19 +637,10 @@ impl IdentityState {
                 self.set_applied_nonce(&op.declared_target, op.nonce);
                 Ok(Applied::DelegateRevoked)
             }
-            // CreateCoFay (task 11.3): the declared target is the OWNER. Create the new
-            // coFay beneath it via Identity_Service. `create_cofay` validates (derive +
-            // attach) BEFORE writing anything, so on any error (KeyFormatInvalid /
-            // OwnerNotFound / OwnershipCycle / OwnershipDepthExceeded) NOTHING is created
-            // and the `?` propagates with the nonce left unbumped — the aggregate stays
-            // byte-for-byte unchanged (Requirements 6.1, 6.7, 13.4). Only on Ok do we
-            // bump the owner's applied_nonce (the op targets the owner, Requirement 5.5).
             OperationPayload::CreateCoFay {
                 owner,
                 new_cofay_key,
             } => {
-                // coFays cannot nest: a CoFay target attempting to create another CoFay
-                // is rejected with OwnerTypeNotAllowed before mutating any state.
                 if self
                     .identities
                     .get(&op.declared_target)
@@ -637,15 +660,110 @@ impl IdentityState {
                 self.set_applied_nonce(&op.declared_target, op.nonce);
                 Ok(Applied::CoFayCreated(cofay_id))
             }
-            // Deferred to tasks 13 / 14. To preserve atomicity and the no-partial-write
-            // guarantee (Requirement 13.4), these commit nothing and do NOT bump
-            // `applied_nonce`, so the operation can be re-submitted unchanged once its
-            // owning task lands the real effect.
-            OperationPayload::EnrollDevice { .. }
-            | OperationPayload::RevokeDevice { .. }
-            | OperationPayload::RotateKey { .. }
-            | OperationPayload::ConfigureGuardians { .. }
-            | OperationPayload::RecoveryApproval { .. } => Ok(Applied::Deferred),
+            OperationPayload::EnrollDevice {
+                device_key,
+                device_type,
+            } => {
+                let target_scheme = self
+                    .identities
+                    .get(&op.declared_target)
+                    .ok_or(IdentityError::IdentityMismatch)?
+                    .scheme_tag
+                    .clone();
+                self.registry
+                    .resolve(&target_scheme)?
+                    .validate_verifying_key(device_key.as_bytes())?;
+                let device_id = self.devices.enroll(
+                    &op.declared_target,
+                    device_key,
+                    *device_type,
+                    created_at,
+                )?;
+                self.set_applied_nonce(&op.declared_target, op.nonce);
+                Ok(Applied::DeviceEnrolled(device_id))
+            }
+            OperationPayload::RevokeDevice { device_id } => {
+                self.devices
+                    .revoke(&op.declared_target, &DeviceId::from_string(device_id))?;
+                self.set_applied_nonce(&op.declared_target, op.nonce);
+                Ok(Applied::DeviceRevoked)
+            }
+            OperationPayload::RotateKey { new_key } => {
+                let record = self.recovery.rotate_key(
+                    &mut self.identities,
+                    &self.registry,
+                    &op.declared_target,
+                    new_key,
+                    created_at,
+                )?;
+                self.set_applied_nonce(&op.declared_target, op.nonce);
+                Ok(Applied::KeyRotated(record))
+            }
+            OperationPayload::ConfigureGuardians {
+                guardians,
+                threshold,
+            } => {
+                let target_record = self
+                    .identities
+                    .get(&op.declared_target)
+                    .ok_or(IdentityError::IdentityMismatch)?;
+                if target_record.kind != crate::types::IdentityKind::IFay {
+                    return Err(IdentityError::OwnerTypeNotAllowed);
+                }
+                let descriptor = self.registry.resolve(&target_record.scheme_tag)?;
+                for guardian in guardians {
+                    descriptor.validate_verifying_key(guardian.as_bytes())?;
+                }
+                self.recovery.configure_guardians(
+                    &self.identities,
+                    &op.declared_target,
+                    guardians,
+                    *threshold,
+                )?;
+                self.set_applied_nonce(&op.declared_target, op.nonce);
+                Ok(Applied::GuardiansConfigured)
+            }
+            OperationPayload::RecoveryApproval {
+                new_key,
+                guardian_key,
+            } => {
+                let target_scheme = self
+                    .identities
+                    .get(&op.declared_target)
+                    .ok_or(IdentityError::IdentityMismatch)?
+                    .scheme_tag
+                    .clone();
+                self.registry
+                    .resolve(&target_scheme)?
+                    .validate_verifying_key(new_key.as_bytes())?;
+                let threshold = self
+                    .recovery
+                    .guardian_config(&op.declared_target)
+                    .ok_or(IdentityError::IdentityMismatch)?
+                    .threshold;
+                match self.recovery.submit_recovery_approval(
+                    &mut self.identities,
+                    &self.registry,
+                    &op.declared_target,
+                    new_key,
+                    guardian_key,
+                    created_at,
+                ) {
+                    Ok(record) => {
+                        self.set_applied_nonce(&op.declared_target, op.nonce);
+                        Ok(Applied::RecoveryCompleted(record))
+                    }
+                    Err(IdentityError::RecoveryThresholdNotMet) => {
+                        let approvals = self.recovery.approval_count(&op.declared_target, new_key);
+                        self.set_applied_nonce(&op.declared_target, op.nonce);
+                        Ok(Applied::RecoveryApprovalRecorded {
+                            approvals,
+                            threshold,
+                        })
+                    }
+                    Err(err) => Err(err),
+                }
+            }
         }
     }
 
@@ -1298,32 +1416,193 @@ mod tests {
     }
 
     #[test]
-    fn deferred_payload_authenticates_but_commits_nothing() {
-        // A RotateKey (task 14) passes the full authentication chain but its effect is
-        // deferred: it returns Applied::Deferred and changes nothing — crucially it does
-        // NOT consume the nonce, so the operation can be re-submitted unchanged later
-        // (Requirement 13.4 atomicity).
+    fn rotate_key_and_guardian_recovery_commit_atomically_and_preserve_identity_id() {
         let mut state = reference_state();
-        let (sk, signer_vk) = reference_keypair(b"owner-seed");
-        let id = create_reference_ifay(&mut state, &signer_vk);
+        let (sk0, vk0) = reference_keypair(b"owner-seed-0");
+        let (sk1, vk1) = reference_keypair(b"owner-seed-1");
+        let (sk2, vk2) = reference_keypair(b"owner-seed-2");
+        let (g1_sk, g1_vk) = reference_keypair(b"guardian-1");
+        let (g2_sk, g2_vk) = reference_keypair(b"guardian-2");
+        let (g3_sk, g3_vk) = reference_keypair(b"guardian-3");
+        let id = create_reference_ifay(&mut state, &vk0);
 
-        let before = state.clone();
-        let op = signed_op(
+        // 1. Self-signed RotateKey swaps active_key -> vk1, retires vk0, preserves IdentityId, bumps nonce -> 1.
+        let rotate_op = signed_op(
             &id,
             OperationPayload::RotateKey {
-                new_key: vk(vec![2u8; 32]),
+                new_key: vk1.clone(),
             },
             1,
-            &sk,
-            &signer_vk,
+            &sk0,
+            &vk0,
+        );
+        let applied = state
+            .apply(&rotate_op, &ReferenceVerifier, Timestamp::from_secs(10))
+            .expect("RotateKey commits");
+        assert!(matches!(applied, Applied::KeyRotated(_)));
+        assert_eq!(state.identities.get(&id).unwrap().id, id);
+        assert_eq!(state.identities.get(&id).unwrap().active_key, vk1);
+        assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 1);
+
+        // Old retired key vk0 is immediately rejected with UnauthorizedActor and zero state mutation.
+        let before_retired = state.clone();
+        let stale_op = signed_op(
+            &id,
+            OperationPayload::AddDelegate {
+                delegate: vk(vec![9u8; 32]),
+            },
+            2,
+            &sk0,
+            &vk0,
         );
         assert_eq!(
-            state.apply(&op, &ReferenceVerifier, Timestamp::from_secs(2)),
-            Ok(Applied::Deferred)
+            state.apply(&stale_op, &ReferenceVerifier, Timestamp::from_secs(11)),
+            Err(IdentityError::UnauthorizedActor)
         );
-        // No effect AND no nonce bump (deferred operations leave the nonce unconsumed).
-        assert_eq!(state, before);
-        assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 0);
+        assert_eq!(state, before_retired);
+
+        // 2. Rotated active key vk1 configures 2-of-3 guardians at nonce = 2.
+        let cfg_op = signed_op(
+            &id,
+            OperationPayload::ConfigureGuardians {
+                guardians: vec![g1_vk.clone(), g2_vk.clone(), g3_vk],
+                threshold: 2,
+            },
+            2,
+            &sk1,
+            &vk1,
+        );
+        assert_eq!(
+            state.apply(&cfg_op, &ReferenceVerifier, Timestamp::from_secs(12)),
+            Ok(Applied::GuardiansConfigured)
+        );
+        assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 2);
+
+        // 3. Guardian 1 submits RecoveryApproval -> vk2 at nonce = 3 (1-of-2 recorded, not yet rotated).
+        let rec1 = signed_op(
+            &id,
+            OperationPayload::RecoveryApproval {
+                new_key: vk2.clone(),
+                guardian_key: g1_vk.clone(),
+            },
+            3,
+            &g1_sk,
+            &g1_vk,
+        );
+        assert_eq!(
+            state.apply(&rec1, &ReferenceVerifier, Timestamp::from_secs(13)),
+            Ok(Applied::RecoveryApprovalRecorded {
+                approvals: 1,
+                threshold: 2,
+            })
+        );
+        assert_eq!(state.identities.get(&id).unwrap().active_key, vk1);
+        assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 3);
+
+        // 4. Guardian 2 submits RecoveryApproval -> vk2 at nonce = 4 (2-of-2 reached -> rotates to vk2!).
+        let rec2 = signed_op(
+            &id,
+            OperationPayload::RecoveryApproval {
+                new_key: vk2.clone(),
+                guardian_key: g2_vk.clone(),
+            },
+            4,
+            &g2_sk,
+            &g2_vk,
+        );
+        let rec2_out = state
+            .apply(&rec2, &ReferenceVerifier, Timestamp::from_secs(14))
+            .expect("2-of-2 recovery completes");
+        assert!(matches!(rec2_out, Applied::RecoveryCompleted(_)));
+        assert_eq!(state.identities.get(&id).unwrap().id, id);
+        assert_eq!(state.identities.get(&id).unwrap().active_key, vk2);
+        assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 4);
+
+        // 5. Newly recovered key vk2 can immediately EnrollDevice and RevokeDevice!
+        let (dev_sk, dev_vk) = reference_keypair(b"phone-device");
+        let enroll_op = signed_op(
+            &id,
+            OperationPayload::EnrollDevice {
+                device_key: dev_vk.clone(),
+                device_type: DeviceType::Phone,
+            },
+            5,
+            &sk2,
+            &vk2,
+        );
+        let dev_id = match state
+            .apply(&enroll_op, &ReferenceVerifier, Timestamp::from_secs(15))
+            .expect("EnrollDevice commits")
+        {
+            Applied::DeviceEnrolled(did) => did,
+            other => panic!("expected DeviceEnrolled, got {other:?}"),
+        };
+        assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 5);
+
+        // Active device key can sign routine ops (e.g. AddDelegate), but CANNOT RotateKey!
+        let dev_routine = signed_op(
+            &id,
+            OperationPayload::AddDelegate {
+                delegate: vk(vec![44u8; 32]),
+            },
+            6,
+            &dev_sk,
+            &dev_vk,
+        );
+        assert_eq!(
+            state.apply(&dev_routine, &ReferenceVerifier, Timestamp::from_secs(16)),
+            Ok(Applied::DelegateAdded)
+        );
+        let dev_rotate_attempt = signed_op(
+            &id,
+            OperationPayload::RotateKey {
+                new_key: vk(vec![55u8; 32]),
+            },
+            7,
+            &dev_sk,
+            &dev_vk,
+        );
+        assert_eq!(
+            state.apply(
+                &dev_rotate_attempt,
+                &ReferenceVerifier,
+                Timestamp::from_secs(17)
+            ),
+            Err(IdentityError::UnauthorizedActor)
+        );
+
+        // RevokeDevice disempowers dev_vk immediately.
+        let revoke_op = signed_op(
+            &id,
+            OperationPayload::RevokeDevice {
+                device_id: dev_id.as_str().to_string(),
+            },
+            7,
+            &sk2,
+            &vk2,
+        );
+        assert_eq!(
+            state.apply(&revoke_op, &ReferenceVerifier, Timestamp::from_secs(18)),
+            Ok(Applied::DeviceRevoked)
+        );
+        let after_revoke_attempt = signed_op(
+            &id,
+            OperationPayload::AddDelegate {
+                delegate: vk(vec![66u8; 32]),
+            },
+            8,
+            &dev_sk,
+            &dev_vk,
+        );
+        assert_eq!(
+            state.apply(
+                &after_revoke_attempt,
+                &ReferenceVerifier,
+                Timestamp::from_secs(19)
+            ),
+            Err(IdentityError::UnauthorizedActor)
+        );
+        let _ = g3_sk;
     }
 
     // --- IdentityState::apply: CreateCoFay under single-layer ownership ----

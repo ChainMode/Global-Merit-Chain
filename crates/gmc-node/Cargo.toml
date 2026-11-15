@@ -1,0 +1,25 @@
+[package]
+name = "gmc-node"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GMChain single-node persistent testnet runtime: real Ed25519 cryptography, crash-consistent WAL + snapshot store, L2/L1 zero-fee settlement, and loopback control server."
+
+[[bin]]
+name = "gmc-node"
+path = "src/main.rs"
+
+[dependencies]
+gmc-core = { path = "../gmc-core" }
+gmc-identity = { path = "../gmc-identity" }
+ed25519-dalek = "2.2.0"
+sha2 = "0.10.9"
+blake3 = "1.8.5"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+hex = "0.4.3"
+zeroize = "1.8.2"
+
+[dev-dependencies]
+proptest = { workspace = true }

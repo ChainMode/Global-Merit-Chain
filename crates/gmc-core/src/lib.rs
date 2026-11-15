@@ -104,3 +104,11 @@ pub mod flows;
 /// Cold-start decaying initial Merit bootstrap (`B_i = 0` zero floor, faster decay,
 /// per-`opaqueRef` caps/cooldowns) and natural-person governance weight normalization.
 pub mod bootstrap;
+
+/// Social relationship graph, bilateral interaction anti-farming, deterministic
+/// fixed-point decaying intimacy, and 5-tier / `coFay` inheritance (`OQ-P2-GMC-6`, `OQ-P2-GMC-8`).
+pub mod relationship;
+
+/// Batch-bound complaints, anti-malicious-complaint screening, `>= 3/4` severity-graded
+/// penalties (sole `minMerit` reduction channel), and wider-community appeals (`OQ-P2-GMC-7`).
+pub mod penalty;

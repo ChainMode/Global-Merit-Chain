@@ -119,6 +119,12 @@ impl DeviceId {
         DeviceId(base32_encode(device_key.as_bytes()))
     }
 
+    /// Constructs a [`DeviceId`] from its serialized fingerprint string.
+    #[inline]
+    pub fn from_string(id: impl Into<String>) -> Self {
+        DeviceId(id.into())
+    }
+
     /// The fingerprint as a string slice.
     #[inline]
     pub fn as_str(&self) -> &str {
@@ -197,6 +203,25 @@ impl DeviceCredential {
     #[inline]
     pub fn is_active(&self) -> bool {
         self.status == DeviceStatus::Active
+    }
+
+    /// Reconstructs a [`DeviceCredential`] from persisted fields (snapshot restoration).
+    pub fn from_parts(
+        device_id: DeviceId,
+        identity_id: IdentityId,
+        device_key: VerifyingKey,
+        device_type: DeviceType,
+        registered_at: Timestamp,
+        status: DeviceStatus,
+    ) -> Self {
+        DeviceCredential {
+            device_id,
+            identity_id,
+            device_key,
+            device_type,
+            registered_at,
+            status,
+        }
     }
 }
 
@@ -365,6 +390,30 @@ impl DeviceRegistry {
             }
         }
         Ok(())
+    }
+
+    /// Returns `true` iff `device_key` is currently bound as an [`Active`](DeviceStatus::Active)
+    /// credential under `identity_id`.
+    #[inline]
+    pub fn is_active_device(&self, identity_id: &IdentityId, device_key: &VerifyingKey) -> bool {
+        let device_id = DeviceId::derive(device_key);
+        self.credential(identity_id, &device_id)
+            .is_some_and(DeviceCredential::is_active)
+    }
+
+    /// Iterates over all credentials across all identities in deterministic `(IdentityId, DeviceId)` order.
+    pub fn iter_all(&self) -> impl Iterator<Item = (&IdentityId, &DeviceCredential)> {
+        self.credentials
+            .iter()
+            .flat_map(|(id, map)| map.values().map(move |cred| (id, cred)))
+    }
+
+    /// Restores a persisted [`DeviceCredential`] during deterministic snapshot loading.
+    pub fn restore_credential(&mut self, credential: DeviceCredential) {
+        self.credentials
+            .entry(credential.identity_id.clone())
+            .or_default()
+            .insert(credential.device_id.clone(), credential);
     }
 }
 

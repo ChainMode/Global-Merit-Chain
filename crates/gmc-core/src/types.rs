@@ -36,7 +36,7 @@ impl Decimal {
     pub const SCALE_DIGITS: u32 = 6;
 
     /// `10^SCALE_DIGITS` — the scaling factor between the raw integer and its value.
-    const SCALE: i128 = 1_000_000;
+    pub const SCALE: i128 = 1_000_000;
 
     /// The value `0`.
     pub const ZERO: Decimal = Decimal(0);
@@ -203,8 +203,8 @@ impl Ratio {
 
     /// Builds a `Ratio`, returning `None` if `value` lies outside `[0, 1]`.
     #[inline]
-    pub fn new(value: Decimal) -> Option<Ratio> {
-        if value >= Decimal::ZERO && value <= Decimal::ONE {
+    pub const fn new(value: Decimal) -> Option<Ratio> {
+        if value.raw() >= 0 && value.raw() <= Decimal::SCALE {
             Some(Ratio(value))
         } else {
             None

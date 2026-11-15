@@ -353,6 +353,14 @@ pub struct BatchProof {
 }
 
 impl BatchProof {
+    /// Builds a [`BatchProof`] from `record_count` and `committed_root`.
+    pub const fn new(record_count: usize, committed_root: BatchRoot) -> Self {
+        BatchProof {
+            record_count,
+            committed_root,
+        }
+    }
+
     /// The number of records this proof attests to.
     pub fn record_count(&self) -> usize {
         self.record_count
@@ -638,6 +646,64 @@ impl L2Rollup {
     /// sink's `Ok(())` / [`GmcError::ProofVerificationFailed`](crate::error::GmcError::ProofVerificationFailed).
     pub fn submit_batch_proof_to(batch: &Batch, sink: &mut impl L1ProofSink) -> GmcResult<()> {
         sink.submit_batch_proof(batch.batch_root, &batch.proof)
+    }
+
+    /// Monotonic next record sequence counter (used for deterministic persistence).
+    pub const fn next_record_seq(&self) -> u64 {
+        self.next_record_seq
+    }
+
+    /// Restores an [`L2Rollup`] instance from persisted deterministic state.
+    pub fn from_persisted_parts(
+        buffer: VecDeque<BufferedRecord>,
+        last_batch_at: Timestamp,
+        next_batch_seq: u64,
+        next_record_seq: u64,
+    ) -> Self {
+        L2Rollup {
+            buffer,
+            last_batch_at,
+            next_batch_seq,
+            next_record_seq,
+            consensus: L2Consensus::L2,
+        }
+    }
+
+    /// Builds the candidate [`Batch`] without draining the buffer yet, either only when
+    /// [`batch_trigger`](L2Rollup::batch_trigger) fires (`force == false`) or whenever
+    /// the buffer is non-empty (`force == true`, e.g. explicit block production).
+    pub fn preview_batch(&self, now: Timestamp, force: bool) -> Option<Batch> {
+        if self.buffer.is_empty() {
+            return None;
+        }
+        let trigger = match self.batch_trigger(now) {
+            Some(t) => t,
+            None if force => BatchTrigger::IntervalElapsed,
+            None => return None,
+        };
+        let seq = self.next_batch_seq;
+        let batch_root = BatchRoot::derive(seq, &self.buffer);
+        let records: Vec<BufferedRecord> = self.buffer.iter().cloned().collect();
+        let proof = BatchProof {
+            record_count: records.len(),
+            committed_root: batch_root,
+        };
+        Some(Batch {
+            seq,
+            records,
+            batch_root,
+            proof,
+            submitted_at: now,
+            trigger,
+        })
+    }
+
+    /// Commits a previewed batch after `L1ProofSink` verification succeeds, draining
+    /// the buffer, advancing `next_batch_seq`, and resetting `last_batch_at = now`.
+    pub fn commit_previewed_batch(&mut self, now: Timestamp) {
+        self.buffer.clear();
+        self.last_batch_at = now;
+        self.next_batch_seq += 1;
     }
 
     // --- Internal helpers ---------------------------------------------------

@@ -180,6 +180,16 @@ impl OwnershipRegistry {
         let kind = OwnerKind::parse_label(kind_label)?;
         self.set_owner(cofay, OwnerRef::new(owner_id, kind))
     }
+
+    /// Ordered iterator over all `coFay -> OwnerRef` bindings.
+    pub fn iter_owners(&self) -> impl Iterator<Item = (&IdentityId, &OwnerRef)> {
+        self.owners.iter()
+    }
+
+    /// Ordered iterator over all explicit `coFay -> VerifyingKey` owner bindings.
+    pub fn iter_owner_keys(&self) -> impl Iterator<Item = (&IdentityId, &VerifyingKey)> {
+        self.owner_keys.iter()
+    }
 }
 
 #[cfg(test)]

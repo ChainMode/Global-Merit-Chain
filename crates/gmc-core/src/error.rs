@@ -136,6 +136,30 @@ pub enum GmcError {
     /// Reject the batch state update; retain the previous confirmed state root.
     /// _Requirement 13.8._
     ProofVerificationFailed,
+
+    // --- Social relationship graph & inheritance (Blueprint Ch. 7, Ch. 10) ---
+    /// Relationship was registered after the target governance/inheritance event
+    /// (`registered_at > event_at`), violating mandatory pre-event registration.
+    RetroactiveRelationshipDisallowed,
+    /// Relationship lacks bilateral confirmation from both endpoints, or self-loop was supplied.
+    RelationshipNotConfirmed,
+    /// Natural-person (`iFay`) inheritance attempted with intimacy `< 0.1`.
+    InsufficientIntimacyForInheritance,
+
+    // --- Penalty & appeal governance (Blueprint Ch. 9) ---
+    /// Complaint is missing a valid target `batch_id` or canonical `evidence_hash`,
+    /// or the target batch does not exist in the respondent's pocket.
+    ComplaintInvalid,
+    /// Complainant attempted to file a new complaint while their cooldown window is active.
+    ComplaintCooldownActive,
+    /// Complainant lacks the minimum `curMerit` floor or has reached the dismissed-complaint strike cap.
+    MaliciousComplainantBlocked,
+    /// Stakeholder admissibility vote failed or penalty execution was attempted before admissibility passed.
+    AdmissibilityNotMet,
+    /// Appeal submitted after the post-penalty appeal window expired or on a non-penalized case.
+    AppealWindowExpired,
+    /// Appeal resolution attempted without a strictly expanded wider-community electorate.
+    AppealElectorateNotExpanded,
 }
 
 impl GmcError {
@@ -173,6 +197,15 @@ impl GmcError {
             GmcError::OperationNotAllowed => "OperationNotAllowed",
             GmcError::DoubleConversion => "DoubleConversion",
             GmcError::ProofVerificationFailed => "ProofVerificationFailed",
+            GmcError::RetroactiveRelationshipDisallowed => "RetroactiveRelationshipDisallowed",
+            GmcError::RelationshipNotConfirmed => "RelationshipNotConfirmed",
+            GmcError::InsufficientIntimacyForInheritance => "InsufficientIntimacyForInheritance",
+            GmcError::ComplaintInvalid => "ComplaintInvalid",
+            GmcError::ComplaintCooldownActive => "ComplaintCooldownActive",
+            GmcError::MaliciousComplainantBlocked => "MaliciousComplainantBlocked",
+            GmcError::AdmissibilityNotMet => "AdmissibilityNotMet",
+            GmcError::AppealWindowExpired => "AppealWindowExpired",
+            GmcError::AppealElectorateNotExpanded => "AppealElectorateNotExpanded",
         }
     }
 }

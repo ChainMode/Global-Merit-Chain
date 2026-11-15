@@ -130,6 +130,28 @@ impl PocketBinding {
     pub fn is_empty(&self) -> bool {
         self.by_identity.is_empty()
     }
+
+    /// Mutable reference to the [`MeritPocket`] stored under `key` (used by node settlement / penalty).
+    pub fn pocket_by_key_mut(&mut self, key: &FayID) -> Option<&mut MeritPocket> {
+        self.pockets.get_mut(key)
+    }
+
+    /// Ordered iterator over `(IdentityId, FayID)` bindings.
+    pub fn iter_bindings(&self) -> impl Iterator<Item = (&IdentityId, &FayID)> {
+        self.by_identity.iter()
+    }
+
+    /// Ordered iterator over `(FayID, MeritPocket)` entries.
+    pub fn iter_pockets(&self) -> impl Iterator<Item = (&FayID, &MeritPocket)> {
+        self.pockets.iter()
+    }
+
+    /// Restores a bound `(IdentityId, MeritPocket)` pair during deterministic snapshot loading.
+    pub fn restore_binding(&mut self, id: IdentityId, pocket: MeritPocket) {
+        let fay_id = id.to_fay_id();
+        self.by_identity.insert(id, fay_id.clone());
+        self.pockets.insert(fay_id, pocket);
+    }
 }
 
 #[cfg(test)]

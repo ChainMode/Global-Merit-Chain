@@ -158,6 +158,11 @@ impl DelegateSet {
             .map(|record| record.key.clone())
             .collect()
     }
+
+    /// Ordered iterator over all delegate records (both `Active` and `Revoked`).
+    pub fn records(&self) -> impl Iterator<Item = (&String, &DelegateRecord)> {
+        self.delegates.iter()
+    }
 }
 
 /// The delegate registry: every coFay's [`DelegateSet`] keyed by its [`IdentityId`]
@@ -275,6 +280,26 @@ impl DelegateStore {
     #[inline]
     pub fn set(&self, cofay: &IdentityId) -> Option<&DelegateSet> {
         self.sets.get(cofay)
+    }
+
+    /// Ordered iterator over all delegate sets across `coFay` identities.
+    pub fn iter_sets(&self) -> impl Iterator<Item = (&IdentityId, &DelegateSet)> {
+        self.sets.iter()
+    }
+
+    /// Restores a persisted delegate record (preserving `Active` / `Revoked` status) during snapshot loading.
+    pub fn restore_record(
+        &mut self,
+        cofay: &IdentityId,
+        key: VerifyingKey,
+        status: DelegateStatus,
+    ) {
+        let set = self
+            .sets
+            .entry(cofay.clone())
+            .or_insert_with(|| DelegateSet::new(cofay.clone()));
+        set.delegates
+            .insert(fingerprint(&key), DelegateRecord { key, status });
     }
 }
 

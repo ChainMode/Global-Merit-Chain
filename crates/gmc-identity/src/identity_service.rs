@@ -286,6 +286,11 @@ impl IdentityService {
     pub fn iter(&self) -> impl Iterator<Item = (&IdentityId, &Identity)> {
         self.identities.iter()
     }
+
+    /// Restores a persisted [`Identity`] record during deterministic snapshot loading.
+    pub fn restore_identity(&mut self, identity: Identity) {
+        self.identities.insert(identity.id.clone(), identity);
+    }
 }
 
 #[cfg(test)]

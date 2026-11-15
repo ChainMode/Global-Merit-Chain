@@ -472,6 +472,37 @@ impl RecoveryService {
             .get(&(id.clone(), base32_encode(new_key.as_bytes())))
             .map_or(0, RecoverySession::approval_count)
     }
+
+    /// Ordered iterator over all rotation histories.
+    pub fn iter_rotation_history(&self) -> impl Iterator<Item = (&IdentityId, &Vec<RotationRecord>)> {
+        self.rotation_history.iter()
+    }
+
+    /// Ordered iterator over all guardian configurations.
+    pub fn iter_guardian_configs(&self) -> impl Iterator<Item = (&IdentityId, &GuardianConfig)> {
+        self.guardian_configs.iter()
+    }
+
+    /// Ordered iterator over all in-flight recovery sessions.
+    pub fn iter_sessions(&self) -> impl Iterator<Item = (&(IdentityId, String), &RecoverySession)> {
+        self.sessions.iter()
+    }
+
+    /// Restores rotation history for `id` during snapshot loading.
+    pub fn restore_rotation_history(&mut self, id: IdentityId, records: Vec<RotationRecord>) {
+        self.rotation_history.insert(id, records);
+    }
+
+    /// Restores a [`GuardianConfig`] during snapshot loading.
+    pub fn restore_guardian_config(&mut self, config: GuardianConfig) {
+        self.guardian_configs.insert(config.ifay.clone(), config);
+    }
+
+    /// Restores an in-flight [`RecoverySession`] during snapshot loading.
+    pub fn restore_session(&mut self, session: RecoverySession) {
+        let key = (session.ifay.clone(), base32_encode(session.new_key.as_bytes()));
+        self.sessions.insert(key, session);
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ resolver = "2"
 members = [
     "crates/gmc-core",
     "crates/gmc-identity",
+    "crates/gmc-node",
 ]
 
 [workspace.package]

@@ -1,0 +1,96 @@
+[
+  {
+    "id": "rel-01-kinship-fresh-declaration",
+    "kind": "intimacy",
+    "relationship_type": "Kinship",
+    "registered_at": 1000,
+    "event_at": 1000,
+    "bilateral_pairs": 0,
+    "depth_raw": 1000000,
+    "co_participations": 0,
+    "expect_status": "ok",
+    "expected_intimacy_raw": 350000
+  },
+  {
+    "id": "rel-02-retroactive-registration-rejected",
+    "kind": "intimacy",
+    "relationship_type": "Kinship",
+    "registered_at": 5000,
+    "event_at": 4999,
+    "bilateral_pairs": 0,
+    "depth_raw": 1000000,
+    "co_participations": 0,
+    "expect_status": "error",
+    "expected_error": "RetroactiveRelationshipDisallowed"
+  },
+  {
+    "id": "rel-03-social-isolated-pair-damped",
+    "kind": "intimacy",
+    "relationship_type": "Social",
+    "registered_at": 1000,
+    "event_at": 1000,
+    "bilateral_pairs": 10,
+    "depth_raw": 1000000,
+    "co_participations": 0,
+    "expect_status": "ok",
+    "expected_intimacy_raw": 330000
+  },
+  {
+    "id": "rel-04-kinship-integrated-high-tier",
+    "kind": "intimacy",
+    "relationship_type": "Kinship",
+    "registered_at": 1000,
+    "event_at": 1000,
+    "bilateral_pairs": 10,
+    "depth_raw": 1000000,
+    "co_participations": 15,
+    "expect_status": "ok",
+    "expected_intimacy_raw": 800000
+  },
+  {
+    "id": "inh-01-below-0-1-rejected",
+    "kind": "inheritance",
+    "cur_merit_raw": 1000000000,
+    "min_merit_raw": 200000000,
+    "intimacy_raw": 99999,
+    "is_cofay_role": 0,
+    "expect_status": "error",
+    "expected_error": "InsufficientIntimacyForInheritance"
+  },
+  {
+    "id": "inh-02-tier-low-0-1-retains-15-percent",
+    "kind": "inheritance",
+    "cur_merit_raw": 1000000000,
+    "min_merit_raw": 200000000,
+    "intimacy_raw": 100000,
+    "is_cofay_role": 0,
+    "expect_status": "ok",
+    "expected_retention_raw": 150000,
+    "expected_inherited_cur_raw": 150000000,
+    "expected_min_lift_raw": 30000000
+  },
+  {
+    "id": "inh-03-tier-high-0-9-retains-75-percent",
+    "kind": "inheritance",
+    "cur_merit_raw": 1000000000,
+    "min_merit_raw": 200000000,
+    "intimacy_raw": 900000,
+    "is_cofay_role": 0,
+    "expect_status": "ok",
+    "expected_retention_raw": 750000,
+    "expected_inherited_cur_raw": 750000000,
+    "expected_min_lift_raw": 150000000
+  },
+  {
+    "id": "inh-04-cofay-role-succession-100-percent",
+    "kind": "inheritance",
+    "cur_merit_raw": 1000000000,
+    "min_merit_raw": 200000000,
+    "intimacy_raw": 0,
+    "is_cofay_role": 1,
+    "expect_status": "ok",
+    "expected_retention_raw": 1000000,
+    "expected_inherited_cur_raw": 1000000000,
+    "expected_min_lift_raw": 200000000
+  }
+]

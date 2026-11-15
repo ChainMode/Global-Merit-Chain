@@ -515,6 +515,44 @@ impl L1Settlement {
         &self.anchor_log
     }
 
+    /// Ordered iterator over all stored chain registration records.
+    pub fn chain_registrations(&self) -> impl Iterator<Item = (&ChainId, &ChainRegistrationRecord)> {
+        self.chain_registrations.iter()
+    }
+
+    /// Ordered iterator over all stored identity registration records.
+    pub fn identity_registrations(&self) -> impl Iterator<Item = (&FayID, &IdentityRegistrationRecord)> {
+        self.identity_registrations.iter()
+    }
+
+    /// Ordered iterator over all stored governance vote results.
+    pub fn vote_results(&self) -> impl Iterator<Item = (&String, &VoteResultRecord)> {
+        self.vote_results.iter()
+    }
+
+    /// Restores an [`L1Settlement`] instance from persisted deterministic state.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_persisted_parts(
+        chain_registrations: BTreeMap<ChainId, ChainRegistrationRecord>,
+        identity_registrations: BTreeMap<FayID, IdentityRegistrationRecord>,
+        vote_results: BTreeMap<String, VoteResultRecord>,
+        penalties: Vec<PenaltyRecord>,
+        anchor_log: Vec<AnchorEntry>,
+        state_root: StateRoot,
+        version: u64,
+    ) -> Self {
+        L1Settlement {
+            chain_registrations,
+            identity_registrations,
+            vote_results,
+            penalties,
+            anchor_log,
+            state_root,
+            version,
+            consensus: ConsensusConfig::L1,
+        }
+    }
+
     // --- Record-anchoring operations ---------------------------------------
 
     /// Anchors a chain-creation record to L1 and advances the state root
