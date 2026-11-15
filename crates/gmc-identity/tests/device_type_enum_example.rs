@@ -71,7 +71,7 @@ fn six_valid_device_types_are_accepted_and_round_trip() {
 /// - wrong case:                `"PHONE"`, `"Phone"`
 /// - empty / whitespace:        `""`, `"phone "` (trailing space)
 /// - wrong separator / squashed `"car-hmi"` (hyphen, canonical is `car_hmi`),
-///                              `"cloudsdk"` (missing the underscore in `cloud_sdk`)
+///   `"cloudsdk"` (missing the underscore in `cloud_sdk`)
 #[test]
 fn representative_illegal_device_type_tags_are_rejected() {
     let illegal_tags = [

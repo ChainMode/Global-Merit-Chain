@@ -7,27 +7,21 @@
 //! math, quota accounting, the MeriToken decay model, voter selection, etc.) lives,
 //! and it is the target of the property-based tests (Property 1–30).
 //!
-//! ## Tech-stack decision (recorded per task 1.1, _Requirements: 5.2_)
+//! ## Canonical tech-stack direction (_Requirements: 5.2_)
 //!
-//! **Default direction (chosen):** Rust within the **Substrate ecosystem** as the
-//! **L1 settlement** layer, paired with a **ZK Rollup L2** for high-frequency
-//! processing, and **[`proptest`]** as the property-based testing framework. This
-//! matches the blueprint's recommended `Substrate L1 + ZK Rollup L2` architecture
-//! and is the baseline evaluated in the design's "technology selection" section.
-//!
-//! **Open alternative (kept on the table):** a **TypeScript reference model** paired
-//! with **fast-check** for property-based testing. If the project ever pivots to the
-//! TypeScript reference model, the property mapping and task structure stay the same;
-//! only the test framework changes (`proptest` → `fast-check`).
+//! This Rust workspace (`gmc-core` + `gmc-identity` + `gmc-node`) is the **sole
+//! canonical implementation stack** of the GMC protocol, pairing zero-dependency
+//! fixed-point (`i128`) domain crates with **[`proptest`]** for property-based
+//! verification and `gmc-node` for Ed25519 BFT consensus, persistence, and zero-fee
+//! settlement. Earlier exploratory notes mentioning a TypeScript reference model have
+//! been retired; downstream SDKs in other languages act solely as client libraries.
 //!
 //! [`proptest`]: https://docs.rs/proptest
 //!
 //! ## Module layout
 //!
-//! Each protocol module from the design document has a dedicated home below. They are
-//! empty placeholders at this stage (task 1.1, scaffolding only); shared types and
-//! error codes (task 1.2) and the property-test generator skeleton (task 1.3) are
-//! filled in by later tasks.
+//! Each protocol module has a dedicated home below, enforcing strict zero-runtime-dependency
+//! determinism across every scoring, decay, intimacy, governance, and settlement rule.
 
 // --- Shared primitives & error vocabulary (task 1.2) ---
 

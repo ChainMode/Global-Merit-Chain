@@ -353,18 +353,18 @@ mod tests {
         assert_eq!(fmt.min_len(), 32);
         assert_eq!(fmt.max_len(), 32);
 
-        assert!(fmt.accepts(&vec![0u8; 32]));
-        assert!(!fmt.accepts(&vec![0u8; 31]));
-        assert!(!fmt.accepts(&vec![0u8; 33]));
+        assert!(fmt.accepts(&[0u8; 32]));
+        assert!(!fmt.accepts(&[0u8; 31]));
+        assert!(!fmt.accepts(&[0u8; 33]));
         assert!(!fmt.accepts(&[]));
     }
 
     #[test]
     fn exact_format_check_maps_violation_to_key_format_invalid() {
         let fmt = ByteFormat::exact(64);
-        assert_eq!(fmt.check(&vec![7u8; 64]), Ok(()));
+        assert_eq!(fmt.check(&[7u8; 64]), Ok(()));
         assert_eq!(
-            fmt.check(&vec![7u8; 63]),
+            fmt.check(&[7u8; 63]),
             Err(IdentityError::KeyFormatInvalid)
         );
     }
@@ -376,12 +376,12 @@ mod tests {
         let fmt = ByteFormat::range(4, 8);
         assert_eq!(fmt.exact_len(), None);
         // Boundaries are inclusive.
-        assert!(fmt.accepts(&vec![0u8; 4]));
-        assert!(fmt.accepts(&vec![0u8; 6]));
-        assert!(fmt.accepts(&vec![0u8; 8]));
+        assert!(fmt.accepts(&[0u8; 4]));
+        assert!(fmt.accepts(&[0u8; 6]));
+        assert!(fmt.accepts(&[0u8; 8]));
         // Outside the range is rejected.
-        assert!(!fmt.accepts(&vec![0u8; 3]));
-        assert!(!fmt.accepts(&vec![0u8; 9]));
+        assert!(!fmt.accepts(&[0u8; 3]));
+        assert!(!fmt.accepts(&[0u8; 9]));
     }
 
     #[test]
@@ -397,8 +397,8 @@ mod tests {
     fn empty_range_admits_nothing() {
         // A deliberately empty range (min > max) rejects every input.
         let fmt = ByteFormat::range(5, 4);
-        assert!(!fmt.accepts(&vec![0u8; 4]));
-        assert!(!fmt.accepts(&vec![0u8; 5]));
+        assert!(!fmt.accepts(&[0u8; 4]));
+        assert!(!fmt.accepts(&[0u8; 5]));
         assert!(!fmt.accepts(&[]));
     }
 
@@ -416,24 +416,24 @@ mod tests {
     #[test]
     fn ed25519_validators_accept_standard_lengths() {
         let d = SchemeDescriptor::ed25519();
-        assert_eq!(d.validate_verifying_key(&vec![0u8; 32]), Ok(()));
-        assert_eq!(d.validate_signing_key(&vec![0u8; 32]), Ok(()));
-        assert_eq!(d.validate_signature(&vec![0u8; 64]), Ok(()));
+        assert_eq!(d.validate_verifying_key(&[0u8; 32]), Ok(()));
+        assert_eq!(d.validate_signing_key(&[0u8; 32]), Ok(()));
+        assert_eq!(d.validate_signature(&[0u8; 64]), Ok(()));
     }
 
     #[test]
     fn ed25519_validators_reject_wrong_lengths_with_key_format_invalid() {
         let d = SchemeDescriptor::ed25519();
         assert_eq!(
-            d.validate_verifying_key(&vec![0u8; 31]),
+            d.validate_verifying_key(&[0u8; 31]),
             Err(IdentityError::KeyFormatInvalid)
         );
         assert_eq!(
-            d.validate_signing_key(&vec![0u8; 33]),
+            d.validate_signing_key(&[0u8; 33]),
             Err(IdentityError::KeyFormatInvalid)
         );
         assert_eq!(
-            d.validate_signature(&vec![0u8; 32]),
+            d.validate_signature(&[0u8; 32]),
             Err(IdentityError::KeyFormatInvalid)
         );
         // Empty inputs are rejected too.
@@ -458,25 +458,25 @@ mod tests {
         );
 
         // Signing key: exactly 16.
-        assert_eq!(d.validate_signing_key(&vec![0u8; 16]), Ok(()));
+        assert_eq!(d.validate_signing_key(&[0u8; 16]), Ok(()));
         assert_eq!(
-            d.validate_signing_key(&vec![0u8; 12]),
+            d.validate_signing_key(&[0u8; 12]),
             Err(IdentityError::KeyFormatInvalid)
         );
 
         // Verifying key: 8..=12 inclusive.
-        assert_eq!(d.validate_verifying_key(&vec![0u8; 8]), Ok(()));
-        assert_eq!(d.validate_verifying_key(&vec![0u8; 12]), Ok(()));
+        assert_eq!(d.validate_verifying_key(&[0u8; 8]), Ok(()));
+        assert_eq!(d.validate_verifying_key(&[0u8; 12]), Ok(()));
         assert_eq!(
-            d.validate_verifying_key(&vec![0u8; 16]),
+            d.validate_verifying_key(&[0u8; 16]),
             Err(IdentityError::KeyFormatInvalid)
         );
 
         // Signature: 70..=72 inclusive — a 64-byte (Ed25519-sized) signature is
         // rejected here, proving validation is per-scheme, not global.
-        assert_eq!(d.validate_signature(&vec![0u8; 71]), Ok(()));
+        assert_eq!(d.validate_signature(&[0u8; 71]), Ok(()));
         assert_eq!(
-            d.validate_signature(&vec![0u8; 64]),
+            d.validate_signature(&[0u8; 64]),
             Err(IdentityError::KeyFormatInvalid)
         );
     }

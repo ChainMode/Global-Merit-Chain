@@ -760,7 +760,7 @@ mod tests {
     }
 
     fn valid_hash(byte_hex: char) -> String {
-        core::iter::repeat(byte_hex).take(64).collect()
+        core::iter::repeat_n(byte_hex, 64).collect()
     }
 
     fn sample_pocket(owner: &FayID) -> MeritPocket {

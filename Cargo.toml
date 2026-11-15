@@ -13,8 +13,8 @@ members = [
 
 [workspace.package]
 edition = "2021"
-license = "Apache-2.0"
-repository = "https://github.com/global-merit-chain/global-merit-chain"
+license = "MIT"
+repository = "https://github.com/ChainMode/Global-Merit-Chain"
 
 [workspace.dependencies]
 # Property-based testing framework (default tech-stack decision; see crates/gmc-core/src/lib.rs).

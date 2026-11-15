@@ -1,49 +1,40 @@
-//! Deliverable smoke checks for one-time configuration requirements.
+//! Deliverable smoke checks for one-time configuration and tracked blueprint
+//! technology-selection deliverables.
 //!
-//! These are plain `#[test]` smoke/unit checks — **NOT** property tests — so they carry
-//! no `Feature: ... Property N` label. They verify the "deliverable" acceptance criteria
-//! that the design explicitly routes to smoke tests rather than PBT:
-//!
-//! **One-time configuration (Requirements 1.1 / 13.4 / 13.6).** The root-node config
-//! (`GMC_Base` is the fixed depth-0 root), L1 being fee-free, and L1 running
-//! GRANDPA/BABE consensus are asserted through the crate's public API.
-//!
-//! # Why the design-document assertions were removed (2026-08-12)
-//!
-//! This file previously also asserted on prose inside a specification document
-//! (Requirements 5.2 / 5.3 / 5.6: that the "技术选型评估" section names a baseline
-//! candidate, a comparison candidate, a three-dimensional comparison table, and a
-//! recommendation with rationale). Those four tests read the document at runtime —
-//! originally from `.kiro/specs/`, later repointed to `openspec/specs/`.
-//!
-//! They were removed because that approach became structurally unsound:
-//!
-//! 1. **The file is deliberately not in git.** Per PO decision D-1/D-2 (2026-08-12),
-//!    `openspec/` is a development-team-only asset and is gitignored in all repositories;
-//!    `docs/` is the sole published artifact. A test in this public repository therefore
-//!    cannot depend on `openspec/` content: it passes locally (where `openspec/` exists)
-//!    but panics with "No such file or directory" in a fresh clone or in CI.
-//! 2. **The constraint is already enforced where it belongs.** The same requirements are
-//!    expressed as six requirements in `openspec/specs/technology-selection/spec.md`
-//!    (candidate scope, three-dimensional comparison, recommendation rationale, and the
-//!    obligation to record major technology decisions) and are checked by
-//!    `openspec validate --all --strict` plus review — not by `cargo test`.
-//! 3. **Asserting on document prose from an integration test is the wrong layer.**
-//!    Whether a specification contains a Markdown table is a documentation-governance
-//!    concern, not a property of this crate's code.
-//!
-//! Net effect: no constraint was lost, and `cargo test` no longer depends on files that
-//! are absent from the repository. See OQ-P2-GMC-SMOKE in the migration contract.
+//! These are plain `#[test]` smoke/unit checks — **NOT** property tests — verifying:
+//! 1. **One-time protocol configuration (Requirements 1.1 / 13.4 / 13.6)**:
+//!    `GMC_Base` sits at derivation depth `0` under `"gmc-base"`, L1 settlement is
+//!    strictly fee-free (`TRANSACTION_FEE == 0`), and the L1 settlement model declares
+//!    `GRANDPA/BABE`.
+//! 2. **Tracked technology-selection blueprint deliverables (Requirements 5.2 / 5.3 / 5.6)**:
+//!    verifies against the repository's tracked architecture chapter
+//!    (`docs/zh-CN/blueprint/12-技术架构.md`) that the baseline `Substrate` + `ZK Rollup`
+//!    architecture, comparison candidates (`Ethereum` mainnet / L2 / `DAG`), comparison
+//!    table covering Gas cost, throughput, and customizability, and selection rationale
+//!    are all present in any clean clone.
+
+use std::fs;
+use std::path::PathBuf;
 
 use gmc_core::gmc_base::GmcBase;
 use gmc_core::l1_settlement::{ConsensusConfig, L1Settlement};
 use gmc_core::types::ChainId;
 
+fn read_tracked_architecture_blueprint() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/zh-CN/blueprint/12-技术架构.md");
+    fs::read_to_string(&path).unwrap_or_else(|err| {
+        panic!(
+            "tracked architecture blueprint must exist at {}: {err}",
+            path.display()
+        )
+    })
+}
+
 // --- Requirement 1.1: root-node configuration ----------------------------------
 
 #[test]
 fn gmc_base_is_the_fixed_depth_zero_root() {
-    // Requirement 1.1: GMC_Base is the single depth-0 root under a fixed identifier.
     assert_eq!(
         GmcBase::ROOT_DEPTH,
         0,
@@ -65,7 +56,6 @@ fn gmc_base_is_the_fixed_depth_zero_root() {
 
 #[test]
 fn l1_settlement_is_configured_fee_free() {
-    // Requirement 13.4: L1 charges no transaction fee.
     let l1 = L1Settlement::new();
     assert!(
         l1.is_fee_free(),
@@ -85,7 +75,6 @@ fn l1_settlement_is_configured_fee_free() {
 
 #[test]
 fn l1_settlement_uses_grandpa_babe_consensus() {
-    // Requirement 13.6: L1 runs GRANDPA (finality) + BABE (block production).
     let l1 = L1Settlement::new();
     let consensus = l1.consensus_config();
 
@@ -100,5 +89,41 @@ fn l1_settlement_uses_grandpa_babe_consensus() {
         consensus.label(),
         "GRANDPA/BABE",
         "L1 consensus label must read GRANDPA/BABE"
+    );
+}
+
+// --- Requirements 5.2 / 5.3 / 5.6: tracked blueprint technology selection ------
+
+#[test]
+fn blueprint_technology_selection_covers_baseline_comparisons_and_rationale() {
+    let doc = read_tracked_architecture_blueprint();
+
+    // Baseline architecture: Substrate L1 + ZK Rollup L2
+    assert!(
+        doc.contains("Substrate") && doc.contains("ZK Rollup"),
+        "architecture blueprint must document Substrate + ZK Rollup baseline"
+    );
+
+    // Comparison candidates: Ethereum mainnet, Ethereum L2, DAG / Optimistic Rollup
+    assert!(
+        doc.contains("Ethereum 主网")
+            && doc.contains("Ethereum L2")
+            && doc.contains("Optimistic Rollup"),
+        "architecture blueprint must compare alternative chain/rollup candidates"
+    );
+
+    // Comparison table & three core evaluation axes (zero Gas fee, TPS throughput, custom governance)
+    assert!(
+        doc.contains("| 方案 |")
+            && doc.contains("Gas 费")
+            && doc.contains("吞吐量")
+            && doc.contains("可定制治理"),
+        "architecture blueprint must evaluate transaction cost, throughput, and governance customizability"
+    );
+
+    // Explicit recommendation & layered BFT / GRANDPA consensus roles
+    assert!(
+        doc.contains("推荐") && doc.contains("BFT") && doc.contains("GRANDPA/BABE"),
+        "architecture blueprint must state the recommended selection and consensus layering"
     );
 }

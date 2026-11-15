@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn exclude_high_intimacy_defaults_to_true() {
-        assert!(DEFAULT_EXCLUDE_HIGH_INTIMACY);
+        const { assert!(DEFAULT_EXCLUDE_HIGH_INTIMACY) };
         let mech = EvaluationMechanism::with_default_exclusion(
             [AcquisitionMode::ObjectiveMetering],
             ratio("0.66"),

@@ -987,7 +987,7 @@ mod tests {
         assert_eq!(l1.version(), 3);
 
         // The retro outcome's vote result is stored.
-        assert_eq!(l1.vote_result("retro-1").unwrap().passed, false);
+        assert!(!l1.vote_result("retro-1").unwrap().passed);
 
         // The audit log records the kinds in order.
         let kinds: Vec<AnchorKind> = l1.anchor_log().iter().map(|e| e.kind).collect();

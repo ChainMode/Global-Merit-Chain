@@ -65,7 +65,7 @@ fn description_strategy() -> impl Strategy<Value = String> {
         2 => (MAX_DESCRIPTION_CHARS + 1)..=(MAX_DESCRIPTION_CHARS + 80), // clearly over
     ];
     let fill = prop_oneof![Just('a'), Just('字')];
-    (counts, fill).prop_map(|(n, ch)| std::iter::repeat(ch).take(n).collect::<String>())
+    (counts, fill).prop_map(|(n, ch)| std::iter::repeat_n(ch, n).collect::<String>())
 }
 
 proptest! {

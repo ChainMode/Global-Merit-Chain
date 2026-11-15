@@ -53,6 +53,15 @@ pub enum NodeError {
     RpcInvalidRequest(String),
     /// Attempted to bind the local control endpoint to a non-loopback address.
     NonLoopbackBindForbidden(String),
+    /// BFT validator set, proposal, vote, QuorumCertificate, or EquivocationEvidence failed verification.
+    ConsensusInvalid(String),
+    /// Multi-node BFT round exceeded `BFT_FINALITY_BUDGET_MS` (`3,000 ms`).
+    FinalityTimeout {
+        /// Observed elapsed duration in milliseconds.
+        elapsed_ms: u64,
+        /// Configured finality budget in milliseconds.
+        budget_ms: u64,
+    },
 }
 
 impl fmt::Display for NodeError {
@@ -80,6 +89,18 @@ impl fmt::Display for NodeError {
             NodeError::RpcInvalidRequest(msg) => write!(f, "rpc_invalid_request: {msg}"),
             NodeError::NonLoopbackBindForbidden(addr) => {
                 write!(f, "non_loopback_bind_forbidden: {addr}")
+            }
+            NodeError::ConsensusInvalid(msg) => {
+                write!(f, "consensus_invalid: {msg}")
+            }
+            NodeError::FinalityTimeout {
+                elapsed_ms,
+                budget_ms,
+            } => {
+                write!(
+                    f,
+                    "finality_timeout: elapsed {elapsed_ms}ms exceeds budget {budget_ms}ms"
+                )
             }
         }
     }

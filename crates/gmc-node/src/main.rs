@@ -17,6 +17,7 @@ use gmc_identity::types::DeviceType;
 
 use gmc_node::crypto::{keypair_from_seed, sign_ed25519_operation, OperatorKeyStore};
 use gmc_node::error::{NodeError, NodeResult};
+use gmc_node::network::run_cluster_demo;
 use gmc_node::rpc::start_control_server;
 use gmc_node::runtime::{NodeConfig, NodeRuntime, DEFAULT_CHAIN_ID};
 
@@ -37,16 +38,19 @@ fn print_usage() {
          Subcommands:\n\
            init           Initialize operator keystore (0600) and genesis snapshot\n\
            status         Print node status and canonical SHA-256 StateRoot\n\
-           produce-block  Seal pending L2 records and produce a 0-fee / 0-reward block\n\
+           produce-block  Seal pending L2 records and produce a 0-fee / 0-reward BFT block\n\
            demo           Run deterministic end-to-end GMChain lifecycle showcase\n\
+           cluster-demo   Run multi-validator TCP BFT cluster showcase (quorum + equivocation)\n\
            serve          Run bounded local loopback HTTP/JSON-RPC control server\n\
+           workbench      Launch Meritora Desktop graphical workbench & JSON-RPC on loopback\n\
          \n\
          Options:\n\
            --data-dir <dir>       Node data directory (required)\n\
            --chain-id <id>        Chain identifier (default: {DEFAULT_CHAIN_ID})\n\
-           --addr <ip:port>       Loopback bind address for `serve` (default: 127.0.0.1:0)\n\
+           --addr <ip:port>       Loopback bind address (`127.0.0.1:0` for serve, `127.0.0.1:8787` for workbench)\n\
+           --validators <n>       Validator count for `cluster-demo` (default: 4)\n\
            --timestamp <secs>     Explicit Unix timestamp in seconds\n\
-           --max-requests <n>     Optional request count after which `serve` exits cleanly"
+           --max-requests <n>     Optional request count after which `serve`/`workbench` exits cleanly"
     );
 }
 
@@ -59,7 +63,8 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
     let subcmd = args[0].as_str();
     let mut data_dir: Option<PathBuf> = None;
     let mut chain_id = DEFAULT_CHAIN_ID.to_string();
-    let mut addr = "127.0.0.1:0".to_string();
+    let mut addr: Option<String> = None;
+    let mut validators: usize = 4;
     let mut timestamp_secs: u64 = 1_700_000_000;
     let mut max_requests: Option<usize> = None;
 
@@ -85,7 +90,16 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
                 let val = args
                     .get(i)
                     .ok_or_else(|| NodeError::ConfigInvalid("missing --addr value".into()))?;
-                addr = val.clone();
+                addr = Some(val.clone());
+            }
+            "--validators" => {
+                i += 1;
+                let val = args
+                    .get(i)
+                    .ok_or_else(|| NodeError::ConfigInvalid("missing --validators value".into()))?;
+                validators = val
+                    .parse()
+                    .map_err(|_| NodeError::ConfigInvalid("invalid --validators".into()))?;
             }
             "--timestamp" => {
                 i += 1;
@@ -126,7 +140,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
     };
 
     let mut config = NodeConfig::new(&data_dir);
-    config.chain_id = chain_id;
+    config.chain_id = chain_id.clone();
 
     match subcmd {
         "init" => {
@@ -162,16 +176,56 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
             Ok(())
         }
         "demo" => run_demo(config),
+        "cluster-demo" => {
+            let summary = run_cluster_demo(&data_dir, validators, &chain_id)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary)
+                    .map_err(|e| NodeError::Io(e.to_string()))?
+            );
+            Ok(())
+        }
         "serve" => {
-            config.control_addr = Some(addr.clone());
+            let bind_addr = addr.unwrap_or_else(|| "127.0.0.1:0".to_string());
+            config.control_addr = Some(bind_addr.clone());
             let node = NodeRuntime::open(config)?;
             let shared = Arc::new(Mutex::new(node));
-            let handle = start_control_server(shared, &addr, false, max_requests)?;
+            let handle = start_control_server(shared, &bind_addr, false, max_requests)?;
             println!(
                 "{}",
                 json!({
                     "listening_addr": handle.local_addr().to_string(),
                     "max_request_bytes": gmc_node::rpc::MAX_REQUEST_BYTES,
+                })
+            );
+            if max_requests.is_some() {
+                while !handle.is_stopped() {
+                    thread::sleep(Duration::from_millis(10));
+                }
+            } else {
+                loop {
+                    thread::sleep(Duration::from_secs(3600));
+                }
+            }
+            let _ = handle.shutdown()?;
+            Ok(())
+        }
+        "workbench" => {
+            let bind_addr = addr.unwrap_or_else(|| "127.0.0.1:8787".to_string());
+            config.control_addr = Some(bind_addr.clone());
+            let node = NodeRuntime::open_workbench(config)?;
+            let shared = Arc::new(Mutex::new(node));
+            let handle = start_control_server(shared, &bind_addr, false, max_requests)?;
+            let url = format!("http://{}", handle.local_addr());
+            println!(
+                "{}",
+                json!({
+                    "workbench": "ready",
+                    "url": url,
+                    "rpc_url": format!("{url}/rpc"),
+                    "listening_addr": handle.local_addr().to_string(),
+                    "validator_count": 4,
+                    "quorum_threshold": 3,
                 })
             );
             if max_requests.is_some() {

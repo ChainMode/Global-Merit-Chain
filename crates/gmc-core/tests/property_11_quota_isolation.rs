@@ -53,7 +53,7 @@ const PERIOD_START: Timestamp = Timestamp::from_secs(1_000);
 /// which is what makes their results directly comparable.
 fn config_for(index: u32) -> QuotaConfig {
     let quota = Decimal::from_int(((index % 5) as i64 + 1) * 200);
-    let refresh = if index % 2 == 0 {
+    let refresh = if index.is_multiple_of(2) {
         RefreshPeriod::OneTime
     } else {
         RefreshPeriod::Periodic {

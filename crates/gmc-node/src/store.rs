@@ -43,6 +43,7 @@ use gmc_identity::recovery::{GuardianConfig, RecoveryService, RecoverySession, R
 use gmc_identity::scheme::SchemeRegistry;
 use gmc_identity::types::{DeviceType, IdentityKind, SchemeTag, VerifyingKey};
 
+use crate::consensus::{EquivocationEvidence, QuorumCertificate, ValidatorInfo};
 use crate::crypto::register_ed25519_scheme;
 use crate::error::{NodeError, NodeResult};
 
@@ -63,6 +64,16 @@ const SNAPSHOT_TMP_FILE_NAME: &str = "snapshot.json.tmp";
 // Deterministic Persisted DTOs
 // ============================================================================
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedConsensusState {
+    #[serde(default)]
+    pub validators: Vec<ValidatorInfo>,
+    #[serde(default)]
+    pub committed_qcs: Vec<QuorumCertificate>,
+    #[serde(default)]
+    pub equivocations: Vec<EquivocationEvidence>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedNodeState {
     pub format_version: u32,
@@ -77,6 +88,8 @@ pub struct PersistedNodeState {
     pub penalties: PersistedPenaltyState,
     pub l1_records: PersistedL1State,
     pub l2_batches: PersistedL2State,
+    #[serde(default)]
+    pub consensus: PersistedConsensusState,
 }
 
 impl PersistedNodeState {
@@ -97,6 +110,7 @@ impl PersistedNodeState {
                 &L2Rollup::new(Timestamp::from_secs(genesis_time_secs)),
                 &[],
             ),
+            consensus: PersistedConsensusState::default(),
         }
     }
 }
@@ -424,7 +438,7 @@ fn str_to_device_type(s: &str) -> NodeResult<DeviceType> {
     }
 }
 
-fn rel_type_to_str(rt: RelationshipType) -> &'static str {
+pub(crate) fn rel_type_to_str(rt: RelationshipType) -> &'static str {
     match rt {
         RelationshipType::Kinship => "kinship",
         RelationshipType::Legal => "legal",
@@ -433,7 +447,7 @@ fn rel_type_to_str(rt: RelationshipType) -> &'static str {
     }
 }
 
-fn str_to_rel_type(s: &str) -> NodeResult<RelationshipType> {
+pub(crate) fn str_to_rel_type(s: &str) -> NodeResult<RelationshipType> {
     match s {
         "kinship" => Ok(RelationshipType::Kinship),
         "legal" => Ok(RelationshipType::Legal),
@@ -445,7 +459,7 @@ fn str_to_rel_type(s: &str) -> NodeResult<RelationshipType> {
     }
 }
 
-fn privacy_to_str(pt: PrivacyTier) -> &'static str {
+pub(crate) fn privacy_to_str(pt: PrivacyTier) -> &'static str {
     match pt {
         PrivacyTier::ExistencePublic => "existence_public",
         PrivacyTier::ScoreZkCommitted => "score_zk_committed",
@@ -453,7 +467,7 @@ fn privacy_to_str(pt: PrivacyTier) -> &'static str {
     }
 }
 
-fn str_to_privacy(s: &str) -> NodeResult<PrivacyTier> {
+pub(crate) fn str_to_privacy(s: &str) -> NodeResult<PrivacyTier> {
     match s {
         "existence_public" => Ok(PrivacyTier::ExistencePublic),
         "score_zk_committed" => Ok(PrivacyTier::ScoreZkCommitted),
@@ -1658,6 +1672,7 @@ impl NodeStateStore {
         let wal_path = Self::wal_path(data_dir);
         let mut wal_file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&wal_path)?;

@@ -159,7 +159,7 @@ proptest! {
                 continue;
             }
             prop_assert!(
-                chain.stewards().len() >= 1,
+                !chain.stewards().is_empty(),
                 "created chain {} must have >= 1 steward, found {}",
                 chain.id(),
                 chain.stewards().len()

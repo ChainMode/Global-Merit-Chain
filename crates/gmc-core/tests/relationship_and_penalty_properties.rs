@@ -501,7 +501,7 @@ proptest! {
 
         let before_cur = pocket.cur_merit(ts);
         let before_min = pocket.min_merit;
-        let hash: String = core::iter::repeat('f').take(64).collect();
+        let hash: String = "f".repeat(64);
 
         let mut engine = PenaltyEngine::default();
         engine.file_complaint(

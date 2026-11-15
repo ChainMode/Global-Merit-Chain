@@ -25,11 +25,32 @@ use gmc_identity::identity_core::Applied;
 
 use crate::error::{NodeError, NodeResult};
 use crate::runtime::{NodeRuntime, WireSignedOperation};
+use crate::workbench::MERITORA_DESKTOP_HTML;
 
 /// Hard ceiling (`256 KiB`) on incoming HTTP/JSON-RPC request bodies.
 pub const MAX_REQUEST_BYTES: usize = 256 * 1024;
 /// Hard ceiling (`16 KiB`) on HTTP request headers.
 pub const MAX_HEADER_BYTES: usize = 16 * 1024;
+
+const CORS_HEADERS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n";
+
+const fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+struct DemoStepParams {
+    #[serde(default = "default_true")]
+    produce_block: bool,
+}
+
+impl Default for DemoStepParams {
+    fn default() -> Self {
+        DemoStepParams {
+            produce_block: true,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct SubmitOpEnvelope {
@@ -335,11 +356,29 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
 fn write_json_response(stream: &mut TcpStream, status_code: u16, status_text: &str, body: &Value) {
     let payload = serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec());
     let header = format!(
-        "HTTP/1.1 {status_code} {status_text}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status_code} {status_text}\r\nContent-Type: application/json\r\n{CORS_HEADERS}Content-Length: {}\r\nConnection: close\r\n\r\n",
         payload.len()
     );
     let _ = stream.write_all(header.as_bytes());
     let _ = stream.write_all(&payload);
+    let _ = stream.flush();
+}
+
+fn write_html_response(stream: &mut TcpStream, html: &str) {
+    let payload = html.as_bytes();
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n{CORS_HEADERS}Content-Length: {}\r\nConnection: close\r\n\r\n",
+        payload.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(payload);
+    let _ = stream.flush();
+}
+
+fn write_options_response(stream: &mut TcpStream) {
+    let header =
+        format!("HTTP/1.1 204 No Content\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n");
+    let _ = stream.write_all(header.as_bytes());
     let _ = stream.flush();
 }
 
@@ -369,7 +408,15 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
         }
     };
 
+    if req.method == "OPTIONS" {
+        write_options_response(stream);
+        return;
+    }
+
     match (req.method.as_str(), req.path.as_str()) {
+        ("GET", "/") | ("GET", "/workbench") => {
+            write_html_response(stream, MERITORA_DESKTOP_HTML);
+        }
         ("GET", "/health") => {
             write_json_response(stream, 200, "OK", &json!({ "ok": true }));
         }
@@ -503,7 +550,7 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
                 }
             }
         }
-        ("POST", "/rpc") => {
+        ("POST", "/rpc") | ("POST", "/") => {
             let rpc_req: JsonRpcRequest = match serde_json::from_slice(&req.body) {
                 Ok(r) => r,
                 Err(e) => {
@@ -555,6 +602,56 @@ fn dispatch_json_rpc(req: JsonRpcRequest, runtime: &Arc<Mutex<NodeRuntime>>) -> 
                 "id": id,
                 "result": guard.status()
             })
+        }
+        "gmc_validators" => {
+            let Ok(guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": guard.validators_summary()
+            })
+        }
+        "gmc_auditLog" => {
+            let Ok(guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": guard.audit_log_summary()
+            })
+        }
+        "gmc_demoStep" => {
+            let params: DemoStepParams = serde_json::from_value(req.params).unwrap_or_default();
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.demo_step(params.produce_block) {
+                Ok(res) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": res
+                }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32003, "message": e.to_string() }
+                }),
+            }
         }
         "gmc_submitOperation" => {
             let env: SubmitOpEnvelope = match serde_json::from_value(req.params) {

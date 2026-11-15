@@ -32,6 +32,7 @@
 //!     creates empty and keys by `FayID`. This test asserts the bound pocket is keyed by
 //!     the identity's `FayID` and is freshly empty (`batches.is_empty()`), demonstrating
 //!     this layer creates the pocket but never computes any merit balance over it.
+//!
 //! No other gmc-core type, field, or internal of `FayID` is touched by gmc-identity.
 
 use gmc_core::merit::MeritPocket;

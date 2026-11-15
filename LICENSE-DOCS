@@ -1,0 +1,35 @@
+Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Copyright (c) 2025-2026 ChainMode contributors
+
+Scope
+-----
+This license applies to all narrative protocol specifications, architecture
+blueprint chapters, and diagrams located under the `docs/` directory of the
+`ChainMode/Global-Merit-Chain` repository.
+
+(All Rust source code under `crates/`, machine-readable schemas under `schema/`,
+test vectors under `vectors/`, and desktop launcher scripts under `desktop/` are
+licensed separately under the MIT License in `LICENSE`.)
+
+Human-Readable Summary (Not a Substitute for the Legal Code)
+------------------------------------------------------------
+You are free to:
+- Share — copy and redistribute the documentation in any medium or format for
+  any purpose, even commercially.
+- Adapt — remix, transform, and build upon the documentation for any purpose,
+  even commercially.
+
+Under the following terms:
+- Attribution — You must give appropriate credit to "ChainMode contributors",
+  provide a link to the license, and indicate if changes were made. You may do
+  so in any reasonable manner, but not in any way that suggests the licensor
+  endorses you or your use.
+- No additional restrictions — You may not apply legal terms or technological
+  measures that legally restrict others from doing anything the license permits.
+
+Canonical Legal Code
+--------------------
+The complete legal text of the Creative Commons Attribution 4.0 International
+Public License is available at:
+https://creativecommons.org/licenses/by/4.0/legalcode
