@@ -187,7 +187,10 @@ pub fn select_voters(
         indices.swap(i, j);
     }
 
-    let voters = indices[..k].iter().map(|&i| eligible[i].id.clone()).collect();
+    let voters = indices[..k]
+        .iter()
+        .map(|&i| eligible[i].id.clone())
+        .collect();
     Ok(voters)
 }
 
@@ -242,7 +245,12 @@ pub struct VoteEvent {
 
 impl VoteEvent {
     /// Convenience constructor for a [`VoteEvent`].
-    pub fn new(voter: impl Into<FayID>, target: impl Into<String>, approve: bool, at: Timestamp) -> Self {
+    pub fn new(
+        voter: impl Into<FayID>,
+        target: impl Into<String>,
+        approve: bool,
+        at: Timestamp,
+    ) -> Self {
         VoteEvent {
             voter: voter.into(),
             target: target.into(),
@@ -558,7 +566,12 @@ mod tests {
 
     /// Builds a `VoteEvent` for `voter`/`target` at `days_ago` before `now_secs`.
     fn vote_at(voter: &str, target: &str, approve: bool, secs: u64) -> VoteEvent {
-        VoteEvent::new(FayID::new(voter), target, approve, Timestamp::from_secs(secs))
+        VoteEvent::new(
+            FayID::new(voter),
+            target,
+            approve,
+            Timestamp::from_secs(secs),
+        )
     }
 
     #[test]
@@ -737,7 +750,9 @@ mod tests {
             vote_at("v1", "obj", true, 96 * DAY),
         ];
         let mut engine = AntiFraudEngine::new();
-        assert!(engine.record_if_anomalous(&voter, "obj", &history, now).is_none());
+        assert!(engine
+            .record_if_anomalous(&voter, "obj", &history, now)
+            .is_none());
         assert!(engine.pending_audit().is_empty());
     }
 }

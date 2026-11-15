@@ -506,13 +506,22 @@ mod tests {
     #[test]
     fn valid_in_range_set_is_accepted_per_dimension() {
         let mut cfg = InflationIndexConfig::default();
-        assert_eq!(cfg.set_inflation_index(Dimension::Thought, dec("3.50")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Thought, dec("3.50")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Thought), dec("3.50"));
 
-        assert_eq!(cfg.set_inflation_index(Dimension::Training, dec("1.00")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Training, dec("1.00")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Training), dec("1.00"));
 
-        assert_eq!(cfg.set_inflation_index(Dimension::Technique, dec("0.50")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Technique, dec("0.50")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Technique), dec("0.50"));
     }
 
@@ -532,7 +541,10 @@ mod tests {
     fn thought_upper_bound_inclusive_and_above_rejected() {
         let mut cfg = InflationIndexConfig::default();
         // 10.00 is the inclusive upper bound.
-        assert_eq!(cfg.set_inflation_index(Dimension::Thought, dec("10.00")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Thought, dec("10.00")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Thought), dec("10.00"));
         // Just above 10.00 is rejected, preserving the accepted 10.00.
         assert_eq!(
@@ -546,9 +558,15 @@ mod tests {
     fn training_closed_bounds_accept_and_reject() {
         let mut cfg = InflationIndexConfig::default();
         // [0.95, 1.05] — both endpoints accepted.
-        assert_eq!(cfg.set_inflation_index(Dimension::Training, dec("0.95")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Training, dec("0.95")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Training), dec("0.95"));
-        assert_eq!(cfg.set_inflation_index(Dimension::Training, dec("1.05")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Training, dec("1.05")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Training), dec("1.05"));
         // Just outside either endpoint is rejected, preserving the prior 1.05.
         assert_eq!(
@@ -567,9 +585,15 @@ mod tests {
     fn technique_closed_bounds_accept_and_reject_zero() {
         let mut cfg = InflationIndexConfig::default();
         // [0.01, 1.00] — both endpoints accepted.
-        assert_eq!(cfg.set_inflation_index(Dimension::Technique, dec("0.01")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Technique, dec("0.01")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Technique), dec("0.01"));
-        assert_eq!(cfg.set_inflation_index(Dimension::Technique, dec("1.00")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Technique, dec("1.00")),
+            Ok(())
+        );
         assert_eq!(cfg.get(Dimension::Technique), dec("1.00"));
         // 0.00 is below the lower bound and rejected, preserving the prior 1.00.
         assert_eq!(
@@ -595,7 +619,10 @@ mod tests {
     fn rejection_preserves_prior_value() {
         let mut cfg = InflationIndexConfig::default();
         // First set a valid value.
-        assert_eq!(cfg.set_inflation_index(Dimension::Thought, dec("4.20")), Ok(()));
+        assert_eq!(
+            cfg.set_inflation_index(Dimension::Thought, dec("4.20")),
+            Ok(())
+        );
         // A subsequent out-of-range set must not clobber it.
         assert_eq!(
             cfg.set_inflation_index(Dimension::Thought, dec("0.50")),

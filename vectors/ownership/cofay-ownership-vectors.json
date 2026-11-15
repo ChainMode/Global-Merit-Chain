@@ -1,0 +1,52 @@
+{
+  "suite": "gmchain-cofay-ownership-v1",
+  "description": "Conformance vectors for single-layer coFay ownership (HumanID | OrganizationID) and offline prefix/kind validation.",
+  "vectors": [
+    {
+      "id": "OWN-01-human-owner-accepted",
+      "cofaySeedByte": 1,
+      "ownerId": "hid_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ownerKind": "human",
+      "expectedOutcome": "allow"
+    },
+    {
+      "id": "OWN-02-organization-owner-accepted",
+      "cofaySeedByte": 2,
+      "ownerId": "org_ifay-foundation",
+      "ownerKind": "organization",
+      "expectedOutcome": "allow"
+    },
+    {
+      "id": "OWN-03-ifay-owner-rejected",
+      "cofaySeedByte": 3,
+      "ownerId": "ifay_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ownerKind": "ifay",
+      "expectedOutcome": "deny",
+      "expectedError": "OwnerTypeNotAllowed"
+    },
+    {
+      "id": "OWN-04-cofay-owner-rejected",
+      "cofaySeedByte": 4,
+      "ownerId": "cofay_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ownerKind": "cofay",
+      "expectedOutcome": "deny",
+      "expectedError": "OwnerTypeNotAllowed"
+    },
+    {
+      "id": "OWN-05-ifay-disguised-as-human-rejected-offline",
+      "cofaySeedByte": 5,
+      "ownerId": "ifay_cccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "ownerKind": "human",
+      "expectedOutcome": "deny",
+      "expectedError": "OwnerTypeNotAllowed"
+    },
+    {
+      "id": "OWN-06-human-disguised-as-organization-rejected-offline",
+      "cofaySeedByte": 6,
+      "ownerId": "hid_dddddddddddddddddddddddddddddddd",
+      "ownerKind": "organization",
+      "expectedOutcome": "deny",
+      "expectedError": "OwnerTypeNotAllowed"
+    }
+  ]
+}

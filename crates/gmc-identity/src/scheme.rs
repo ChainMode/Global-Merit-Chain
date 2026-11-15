@@ -390,10 +390,7 @@ mod tests {
         assert_eq!(fmt.check(&[1]), Ok(()));
         assert_eq!(fmt.check(&[1, 2]), Ok(()));
         assert_eq!(fmt.check(&[]), Err(IdentityError::KeyFormatInvalid));
-        assert_eq!(
-            fmt.check(&[1, 2, 3]),
-            Err(IdentityError::KeyFormatInvalid)
-        );
+        assert_eq!(fmt.check(&[1, 2, 3]), Err(IdentityError::KeyFormatInvalid));
     }
 
     #[test]
@@ -455,8 +452,8 @@ mod tests {
         // solely per the owning scheme's format).
         let d = SchemeDescriptor::new(
             SchemeTag::new("custom"),
-            ByteFormat::exact(16),  // signing key
-            ByteFormat::range(8, 12), // verifying key
+            ByteFormat::exact(16),     // signing key
+            ByteFormat::range(8, 12),  // verifying key
             ByteFormat::range(70, 72), // signature
         );
 
@@ -497,7 +494,9 @@ mod tests {
     #[test]
     fn default_registry_resolves_ed25519_to_standard_descriptor() {
         let registry = SchemeRegistry::default();
-        let d = registry.resolve(&SchemeTag::ed25519()).expect("ed25519 registered");
+        let d = registry
+            .resolve(&SchemeTag::ed25519())
+            .expect("ed25519 registered");
         assert_eq!(d, &SchemeDescriptor::ed25519());
         assert_eq!(d.signing_key_format(), &ByteFormat::exact(32));
         assert_eq!(d.verifying_key_format(), &ByteFormat::exact(32));

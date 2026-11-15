@@ -103,7 +103,9 @@ fn req_13_2_latency_holds_at_boundary_and_across_a_burst() {
         result.computed_at.saturating_elapsed_since(submitted_at),
         COMPUTE_LATENCY_BUDGET_SECS
     );
-    assert!(result.computed_at.saturating_elapsed_since(submitted_at) <= COMPUTE_LATENCY_BUDGET_SECS);
+    assert!(
+        result.computed_at.saturating_elapsed_since(submitted_at) <= COMPUTE_LATENCY_BUDGET_SECS
+    );
 
     // A burst of submissions: each result is produced within the budget of its own
     // submission, and each gets a distinct record id.
@@ -176,7 +178,10 @@ fn req_13_5_no_scale_out_when_rate_within_rated_throughput() {
     assert!(!ctrl.is_overloaded());
 
     let d1 = ctrl.observe_rate(PER_INSTANCE_THROUGHPUT_RECORDS_PER_SEC, ts(10_000));
-    assert!(!d1.scaled_out, "a rate within capacity never triggers scale-out");
+    assert!(
+        !d1.scaled_out,
+        "a rate within capacity never triggers scale-out"
+    );
     assert_eq!(ctrl.instance_count(), 1);
 }
 
@@ -193,7 +198,10 @@ fn req_13_5_scale_out_triggers_after_sustained_overload_beyond_60s() {
 
     // Overload begins: the first observation only anchors the overload window.
     let start = ctrl.observe_rate(overload_rate, ts(0));
-    assert!(!start.scaled_out, "first overload observation only anchors the window");
+    assert!(
+        !start.scaled_out,
+        "first overload observation only anchors the window"
+    );
     assert!(ctrl.is_overloaded());
 
     // Within the 60 s window (and at exactly 60 s) the overload is not yet *beyond* the
@@ -209,7 +217,10 @@ fn req_13_5_scale_out_triggers_after_sustained_overload_beyond_60s() {
 
     // Beyond 60 s of sustained overload → scale out to cover the rate.
     let scaled = ctrl.observe_rate(overload_rate, ts(SUSTAINED_OVERLOAD_SECS + 1));
-    assert!(scaled.scaled_out, "sustained overload beyond 60 s must scale out");
+    assert!(
+        scaled.scaled_out,
+        "sustained overload beyond 60 s must scale out"
+    );
 
     // The new instance count's combined rated throughput covers the submission rate.
     assert_eq!(scaled.instance_count, required_instances(overload_rate));
@@ -233,7 +244,10 @@ fn req_13_5_transient_overload_under_60s_does_not_scale_out() {
     assert!(ctrl.is_overloaded());
     let dropped = ctrl.observe_rate(800, ts(45));
     assert!(!dropped.scaled_out);
-    assert!(!ctrl.is_overloaded(), "subsiding overload clears the window");
+    assert!(
+        !ctrl.is_overloaded(),
+        "subsiding overload clears the window"
+    );
     assert_eq!(ctrl.instance_count(), 1);
 }
 
@@ -343,9 +357,7 @@ fn cross_layer_l2_processing_batches_and_l1_confirms_proof() {
     for i in 0..4u64 {
         let submit = ts(10 + i);
         let result = rollup.process_contribution(submission("dave", "engineering", "3"), submit);
-        assert!(
-            result.computed_at.saturating_elapsed_since(submit) <= COMPUTE_LATENCY_BUDGET_SECS
-        );
+        assert!(result.computed_at.saturating_elapsed_since(submit) <= COMPUTE_LATENCY_BUDGET_SECS);
     }
     assert_eq!(rollup.buffered_len(), 4);
 

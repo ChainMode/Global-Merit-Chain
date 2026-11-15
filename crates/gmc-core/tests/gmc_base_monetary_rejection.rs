@@ -118,8 +118,10 @@ fn rejected_monetary_request_mints_no_meritoken() {
 
     let batches_before = pocket.batches.len();
     let floor_before = pocket.min_merit();
-    let cur_before: Vec<Decimal> =
-        SAMPLE_TIMES.iter().map(|&t| pocket.cur_merit(ts(t))).collect();
+    let cur_before: Vec<Decimal> = SAMPLE_TIMES
+        .iter()
+        .map(|&t| pocket.cur_merit(ts(t)))
+        .collect();
     let pocket_snapshot = pocket.clone();
 
     for req in disallowed_requests() {

@@ -56,7 +56,10 @@ fn fixed_identity() -> IdentityId {
 
 /// The current `(device_id -> status)` view the registry reports via `list` — the exact
 /// shape Property 15 compares against the model (Req 9.1).
-fn listed_status(registry: &DeviceRegistry, identity: &IdentityId) -> BTreeMap<DeviceId, DeviceStatus> {
+fn listed_status(
+    registry: &DeviceRegistry,
+    identity: &IdentityId,
+) -> BTreeMap<DeviceId, DeviceStatus> {
     registry
         .list(identity)
         .into_iter()

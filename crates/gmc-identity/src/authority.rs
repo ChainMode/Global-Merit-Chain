@@ -56,7 +56,7 @@ use std::collections::BTreeMap;
 
 use crate::error::IdentityResult;
 use crate::identity_id::{base32_encode, derive_identity_id, IdentityId};
-use crate::ownership::OwnershipRegistry;
+use crate::ownership::{OwnerKind, OwnershipRegistry};
 use crate::scheme::SchemeRegistry;
 use crate::types::{SchemeTag, VerifyingKey};
 
@@ -291,33 +291,20 @@ fn fingerprint(key: &VerifyingKey) -> String {
 }
 
 /// Decides whether `signer_key` (under `signer_scheme`) is authorized to act **on
-/// behalf of** `cofay` (design *Authority_Resolver*: `authorizes`; Requirements 7.1,
-/// 7.4, 7.5).
+/// behalf of** `cofay` (`realign-cofay-ownership-to-fayid`, FayID ADR 0001).
 ///
-/// Returns `true` **iff** the signer is one of:
+/// Returns `true` **iff** the signer belongs to **one of the two permitted classes**:
 ///
-/// 1. the **owner** of `cofay` ([`OwnershipRegistry::owner_of`]), or
-/// 2. an **ancestor** on `cofay`'s ownership path ([`OwnershipRegistry::ancestors_of`],
-///    which includes the root iFay and every intermediate owner), or
-/// 3. a currently **Active** delegate `VerifyingKey` of `cofay`
-///    ([`DelegateStore::is_active_delegate`]).
+/// 1. the single-layer **owner** of `cofay` ([`OwnershipRegistry::owner_of`]): either
+///    an explicitly bound owner key ([`OwnershipRegistry::owner_key_of`]) or a
+///    key-derived `hid_<key_repr>` (`OwnerKind::Human`) / `org_<key_repr>`
+///    (`OwnerKind::Organization`); or
+/// 2. a currently **Active** delegate `VerifyingKey` of `cofay`
+///    ([`DelegateStore::is_active_delegate`]) — including any `iFay` granted management
+///    authority without altering `owner`.
 ///
-/// Otherwise it returns `false` (the caller, `Identity_Core`, maps that to
-/// [`UnauthorizedActor`](crate::error::IdentityError::UnauthorizedActor), Requirement
-/// 7.4). A **revoked** delegate fails branch (3) and so is unauthorized (Requirement
-/// 7.5).
-///
-/// Branches (1)/(2) derive the signer's [`IdentityId`] from `(signer_scheme,
-/// signer_key)` via [`derive_identity_id`] and compare it against the ownership
-/// registry. If derivation fails (unregistered scheme or malformed key bytes) the
-/// signer simply cannot match any owner/ancestor identity — but branch (3) still
-/// applies, since a delegate is matched on the **raw** `VerifyingKey` independently of
-/// derivation. This is a **read-only** query: it never mutates any registry (design:
-/// "查询无副作用").
-///
-/// Note: this resolves authorization for acting *on behalf of a coFay*. Authorization
-/// for an operation on an identity's *own* state (current active, non-revoked key /
-/// active device key) is `Identity_Core`'s concern (task 11) and not decided here.
+/// Multi-hop ancestor traversal does **not** exist in the single-layer ownership model
+/// and is never accepted.
 pub fn authorizes(
     cofay: &IdentityId,
     signer_scheme: &SchemeTag,
@@ -326,23 +313,23 @@ pub fn authorizes(
     ownership: &OwnershipRegistry,
     delegates: &DelegateStore,
 ) -> bool {
-    // (1)/(2) owner & ancestor are decided on the signer's derived IdentityId. A
-    // derivation failure just means the signer matches no identity here.
-    if let Ok(signer_id) = derive_identity_id(schemes, signer_scheme, signer_key) {
-        // (1) Owner: the coFay's direct parent.
-        if ownership.owner_of(cofay) == Some(&signer_id) {
-            return true;
-        }
-        // (2) Ancestor: any identity on the root-first ownership path (incl. root iFay).
-        if ownership
-            .ancestors_of(cofay)
-            .iter()
-            .any(|ancestor| ancestor == &signer_id)
-        {
-            return true;
+    if ownership.owner_key_of(cofay) == Some(signer_key) {
+        return true;
+    }
+    if let (Some(owner), Ok(signer_id)) = (
+        ownership.owner_of(cofay),
+        derive_identity_id(schemes, signer_scheme, signer_key),
+    ) {
+        let expected_prefix = match owner.kind {
+            OwnerKind::Human => "hid_",
+            OwnerKind::Organization => "org_",
+        };
+        if let Some(rest) = owner.id.strip_prefix(expected_prefix) {
+            if rest == signer_id.key_repr() {
+                return true;
+            }
         }
     }
-    // (3) Active (non-revoked) delegate — matched on the raw VerifyingKey (7.5).
     delegates.is_active_delegate(cofay, signer_key)
 }
 
@@ -353,7 +340,9 @@ mod tests {
     /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed` (so distinct
     /// seeds derive distinct `IdentityId`s, matching `identity_id`'s test helper).
     fn vk(seed: u8) -> VerifyingKey {
-        let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+        let bytes: Vec<u8> = (0..32u8)
+            .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+            .collect();
         VerifyingKey::new(bytes)
     }
 
@@ -380,96 +369,129 @@ mod tests {
         )
     }
 
-    // --- owner / ancestor authorization (Requirement 7.1) ------------------
+    // --- single-layer owner authorization (two-class model) ----------------
 
-    #[test]
-    fn owner_is_authorized() {
-        // root iFay (owner) -> coFay; the direct owner authorizes (branch 1).
-        let schemes = SchemeRegistry::default();
-        let owner_key = vk(1);
-        let cofay_key = vk(2);
-        let owner_id = id_of(&schemes, &owner_key);
-        let cofay_id = id_of(&schemes, &cofay_key);
-
-        let mut ownership = OwnershipRegistry::new();
-        ownership.register_root(&owner_id).unwrap();
-        ownership.attach(&cofay_id, &owner_id).unwrap();
-
-        let delegates = DelegateStore::new();
-        assert!(authorized(&cofay_id, &owner_key, &schemes, &ownership, &delegates));
+    fn human_owner_ref(schemes: &SchemeRegistry, key: &VerifyingKey) -> crate::ownership::OwnerRef {
+        let id = id_of(schemes, key);
+        crate::ownership::OwnerRef::new(format!("hid_{}", id.key_repr()), OwnerKind::Human)
     }
 
     #[test]
-    fn root_ifay_ancestor_is_authorized_over_depth_2_cofay() {
-        // root iFay -> mid coFay -> leaf coFay (depth 2). The root iFay, though not the
-        // direct owner of the leaf, is an ancestor and so authorizes (branch 2).
+    fn owner_is_authorized() {
         let schemes = SchemeRegistry::default();
-        let root_key = vk(10);
-        let mid_key = vk(11);
-        let leaf_key = vk(12);
-        let root_id = id_of(&schemes, &root_key);
-        let mid_id = id_of(&schemes, &mid_key);
-        let leaf_id = id_of(&schemes, &leaf_key);
+        let owner_key = vk(1);
+        let cofay_key = vk(2);
+        let cofay_id = id_of(&schemes, &cofay_key);
 
         let mut ownership = OwnershipRegistry::new();
-        ownership.register_root(&root_id).unwrap();
-        ownership.attach(&mid_id, &root_id).unwrap();
-        ownership.attach(&leaf_id, &mid_id).unwrap();
-        assert_eq!(ownership.depth_of(&leaf_id), Some(2));
+        ownership
+            .set_owner(cofay_id.clone(), human_owner_ref(&schemes, &owner_key))
+            .unwrap();
 
         let delegates = DelegateStore::new();
-        // The root iFay (ancestor) and the direct owner `mid` both authorize the leaf.
-        assert!(authorized(&leaf_id, &root_key, &schemes, &ownership, &delegates));
-        assert!(authorized(&leaf_id, &mid_key, &schemes, &ownership, &delegates));
+        assert!(authorized(
+            &cofay_id, &owner_key, &schemes, &ownership, &delegates
+        ));
+    }
+
+    #[test]
+    fn former_ancestor_is_rejected_under_two_class_authorization() {
+        // Under single-layer ownership, an unrelated or parent-org key that is neither
+        // the direct owner of `cofay_id` nor an Active Delegate is strictly rejected.
+        let schemes = SchemeRegistry::default();
+        let parent_org_key = vk(10);
+        let child_org_key = vk(11);
+        let leaf_id = id_of(&schemes, &vk(12));
+
+        let mut ownership = OwnershipRegistry::new();
+        ownership
+            .set_owner(
+                leaf_id.clone(),
+                crate::ownership::OwnerRef::new(
+                    format!("org_{}", id_of(&schemes, &child_org_key).key_repr()),
+                    OwnerKind::Organization,
+                ),
+            )
+            .unwrap();
+
+        let delegates = DelegateStore::new();
+        assert!(authorized(
+            &leaf_id,
+            &child_org_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
+        assert!(!authorized(
+            &leaf_id,
+            &parent_org_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
     }
 
     // --- delegate authorization (Requirements 7.1, 7.2) --------------------
 
     #[test]
     fn active_delegate_is_authorized() {
-        // A delegate that is neither owner nor ancestor authorizes once added (branch 3).
         let schemes = SchemeRegistry::default();
         let owner_key = vk(1);
         let cofay_key = vk(2);
-        let delegate_key = vk(99); // unrelated to the ownership tree
-        let owner_id = id_of(&schemes, &owner_key);
+        let delegate_key = vk(99);
         let cofay_id = id_of(&schemes, &cofay_key);
 
         let mut ownership = OwnershipRegistry::new();
-        ownership.register_root(&owner_id).unwrap();
-        ownership.attach(&cofay_id, &owner_id).unwrap();
+        ownership
+            .set_owner(cofay_id.clone(), human_owner_ref(&schemes, &owner_key))
+            .unwrap();
 
         let mut delegates = DelegateStore::new();
-        // Before being added, the delegate is unauthorized.
-        assert!(!authorized(&cofay_id, &delegate_key, &schemes, &ownership, &delegates));
+        assert!(!authorized(
+            &cofay_id,
+            &delegate_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
 
         delegates.add_delegate(&cofay_id, &delegate_key).unwrap();
-        assert!(authorized(&cofay_id, &delegate_key, &schemes, &ownership, &delegates));
-        // delegates_of now lists exactly this active key.
+        assert!(authorized(
+            &cofay_id,
+            &delegate_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
         assert_eq!(delegates.delegates_of(&cofay_id), vec![delegate_key]);
     }
 
     // --- unauthorized signer (Requirement 7.4) -----------------------------
 
     #[test]
-    fn non_owner_non_ancestor_non_delegate_is_unauthorized() {
+    fn non_owner_non_delegate_is_unauthorized() {
         let schemes = SchemeRegistry::default();
         let owner_key = vk(1);
         let cofay_key = vk(2);
         let stranger_key = vk(200);
-        let owner_id = id_of(&schemes, &owner_key);
         let cofay_id = id_of(&schemes, &cofay_key);
 
         let mut ownership = OwnershipRegistry::new();
-        ownership.register_root(&owner_id).unwrap();
-        ownership.attach(&cofay_id, &owner_id).unwrap();
+        ownership
+            .set_owner(cofay_id.clone(), human_owner_ref(&schemes, &owner_key))
+            .unwrap();
 
         let delegates = DelegateStore::new();
-        // A stranger (not owner, not ancestor, not a delegate) is rejected.
-        assert!(!authorized(&cofay_id, &stranger_key, &schemes, &ownership, &delegates));
-        // The coFay's own key does not, by itself, authorize acting on behalf of the
-        // coFay (it is neither owner/ancestor of itself nor a delegate).
-        assert!(!authorized(&cofay_id, &cofay_key, &schemes, &ownership, &delegates));
+        assert!(!authorized(
+            &cofay_id,
+            &stranger_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
+        assert!(!authorized(
+            &cofay_id, &cofay_key, &schemes, &ownership, &delegates
+        ));
     }
 
     // --- revoked delegate (Requirements 7.3, 7.5) --------------------------
@@ -480,23 +502,34 @@ mod tests {
         let owner_key = vk(1);
         let cofay_key = vk(2);
         let delegate_key = vk(99);
-        let owner_id = id_of(&schemes, &owner_key);
         let cofay_id = id_of(&schemes, &cofay_key);
 
         let mut ownership = OwnershipRegistry::new();
-        ownership.register_root(&owner_id).unwrap();
-        ownership.attach(&cofay_id, &owner_id).unwrap();
+        ownership
+            .set_owner(cofay_id.clone(), human_owner_ref(&schemes, &owner_key))
+            .unwrap();
 
         let mut delegates = DelegateStore::new();
         delegates.add_delegate(&cofay_id, &delegate_key).unwrap();
         delegates.revoke_delegate(&cofay_id, &delegate_key).unwrap();
 
         // Revoked → unauthorized (7.5), and excluded from delegates_of.
-        assert!(!authorized(&cofay_id, &delegate_key, &schemes, &ownership, &delegates));
+        assert!(!authorized(
+            &cofay_id,
+            &delegate_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
         assert!(delegates.delegates_of(&cofay_id).is_empty());
         // The record is retained but marked Revoked.
         assert_eq!(
-            delegates.set(&cofay_id).unwrap().record(&delegate_key).unwrap().status(),
+            delegates
+                .set(&cofay_id)
+                .unwrap()
+                .record(&delegate_key)
+                .unwrap()
+                .status(),
             DelegateStatus::Revoked
         );
     }
@@ -512,12 +545,24 @@ mod tests {
         // add → active.
         delegates.add_delegate(&cofay_id, &delegate_key).unwrap();
         assert!(delegates.is_active_delegate(&cofay_id, &delegate_key));
-        assert!(authorized(&cofay_id, &delegate_key, &schemes, &ownership, &delegates));
+        assert!(authorized(
+            &cofay_id,
+            &delegate_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
 
         // revoke → inactive.
         delegates.revoke_delegate(&cofay_id, &delegate_key).unwrap();
         assert!(!delegates.is_active_delegate(&cofay_id, &delegate_key));
-        assert!(!authorized(&cofay_id, &delegate_key, &schemes, &ownership, &delegates));
+        assert!(!authorized(
+            &cofay_id,
+            &delegate_key,
+            &schemes,
+            &ownership,
+            &delegates
+        ));
 
         // re-add reinstates the same key as active.
         delegates.add_delegate(&cofay_id, &delegate_key).unwrap();

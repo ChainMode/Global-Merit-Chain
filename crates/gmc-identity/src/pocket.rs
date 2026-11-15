@@ -162,7 +162,10 @@ mod tests {
         assert!(binding.pocket(&identity).is_some());
         assert!(binding.pocket_by_key(&identity.to_fay_id()).is_some());
         // The stored pocket carries the canonical FayID.
-        assert_eq!(binding.pocket(&identity).unwrap().fay_id, identity.to_fay_id());
+        assert_eq!(
+            binding.pocket(&identity).unwrap().fay_id,
+            identity.to_fay_id()
+        );
     }
 
     #[test]

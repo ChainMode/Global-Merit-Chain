@@ -44,7 +44,11 @@ use gmc_core::types::ChainId;
 #[test]
 fn gmc_base_is_the_fixed_depth_zero_root() {
     // Requirement 1.1: GMC_Base is the single depth-0 root under a fixed identifier.
-    assert_eq!(GmcBase::ROOT_DEPTH, 0, "GMC_Base must sit at derivation depth 0");
+    assert_eq!(
+        GmcBase::ROOT_DEPTH,
+        0,
+        "GMC_Base must sit at derivation depth 0"
+    );
     assert_eq!(
         GmcBase::root_chain_id(),
         ChainId::new("gmc-base"),
@@ -63,7 +67,10 @@ fn gmc_base_is_the_fixed_depth_zero_root() {
 fn l1_settlement_is_configured_fee_free() {
     // Requirement 13.4: L1 charges no transaction fee.
     let l1 = L1Settlement::new();
-    assert!(l1.is_fee_free(), "L1_Settlement must be configured fee-free");
+    assert!(
+        l1.is_fee_free(),
+        "L1_Settlement must be configured fee-free"
+    );
     assert!(
         l1.transaction_fee().is_zero(),
         "the L1 per-transaction fee must be exactly zero"

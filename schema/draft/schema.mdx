@@ -1,6 +1,18 @@
-# Global Merit Chain Schema (Draft)
+# Global Merit Chain (GMChain) Schema (Draft)
 
+本草案定义了公誉链（GMChain）核心账本与身份边界的数据结构契约：
 
+1. **单层 coFay 归属记录（`CoFayOwnershipRecord`）**
+   - `owner` 仅允许自然人人类原型（`HumanID`，`hid_` 前缀）或组织主体（`OrganizationID`，`org_` 前缀），离线即可完成类型一致性校验。
+   - 严禁以 `iFay` 或 `coFay` 作为 `owner`，且不含任何归属路径或归属树深度字段。
+   - 操作管理权通过 `delegates` 独立授予，绝不改变 `owner`。
 
+2. **递归嵌套功勋链记录（`NestedMeritChainRecord`）**
+   - 自根基座 `gmc-base` 起记录有序 `derivationPath`，协议层不设固定派生深度上限，保留父链存在、无环路与 `(parentId, domain)` 唯一性三项不变量。
+   - 支持可选的 `organizationId` 与子链 1:1 唯一映射。
+   - `stewards`（主理人）强制要求至少一名自然人 `HumanID`；日常链管理权可通过 `managers` 委托给 `iFay`，与主理人责任分离。
 
-
+3. **冷启动衰减引导批次（`BootstrapMeritBatch`）与治理计权输入（`GovernanceVoterSlice`）**
+   - 美誉值（MeriToken，`μ`）非货币，严禁转让、赎回或二级市场交易。
+   - 唯一单向冷启动批次显式标记 `origin = "BootstrapPurchased"`，永久底值贡献量强制为常量 `b = "0"`（绝不抬升 `minMerit`），且 `decayMultiplier >= 2`。
+   - 配额累计与治理凹函数投票权重均以隐私承诺句柄 `opaqueRef`（`gmcref_`）按自然人主体聚合归一化，防止同一人类原型拆分多个 `iFay` 放大权重。

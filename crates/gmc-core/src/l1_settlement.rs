@@ -546,17 +546,13 @@ impl L1Settlement {
     /// state root. Stores the associated vote result so the outcome is queryable. The
     /// concrete home for `Retroactive_Review_Module::anchor_outcome`.
     pub fn anchor_retroactive_outcome(&mut self, result: VoteResultRecord) -> StateRoot {
-        self.vote_results
-            .insert(result.vote_id.clone(), result);
+        self.vote_results.insert(result.vote_id.clone(), result);
         self.advance(AnchorKind::RetroactiveOutcome, None)
     }
 
     /// Stores an identity registration record (_Requirement 13.1_) and advances the
     /// state root.
-    pub fn store_identity_registration(
-        &mut self,
-        record: IdentityRegistrationRecord,
-    ) -> StateRoot {
+    pub fn store_identity_registration(&mut self, record: IdentityRegistrationRecord) -> StateRoot {
         self.identity_registrations
             .insert(record.fay_id.clone(), record);
         self.advance(AnchorKind::IdentityRegistration, None)
@@ -755,7 +751,9 @@ mod tests {
             ts(3_000),
         ));
 
-        let stored = l1.vote_result("vote-7").expect("vote result is retrievable");
+        let stored = l1
+            .vote_result("vote-7")
+            .expect("vote result is retrievable");
         assert!(stored.passed);
         assert_eq!(stored.subject, "mechanism-change:academic-chain");
     }
@@ -790,7 +788,10 @@ mod tests {
         assert_eq!(confirmed, batch_root);
         assert_eq!(l1.state_root(), batch_root);
         assert_eq!(l1.version(), 1);
-        assert_eq!(l1.anchor_log().last().unwrap().kind, AnchorKind::StateRootUpdate);
+        assert_eq!(
+            l1.anchor_log().last().unwrap().kind,
+            AnchorKind::StateRootUpdate
+        );
     }
 
     #[test]
@@ -893,7 +894,8 @@ mod tests {
 
         // valid -> advances to r1
         assert_eq!(
-            l1.submit_batch_proof(r1, BatchProof::valid_for(r1)).unwrap(),
+            l1.submit_batch_proof(r1, BatchProof::valid_for(r1))
+                .unwrap(),
             r1
         );
         assert_eq!(l1.state_root(), r1);
@@ -901,7 +903,8 @@ mod tests {
 
         // invalid -> rejected, root and version retained at r1 / 1
         assert_eq!(
-            l1.submit_batch_proof(r2, BatchProof::invalid()).unwrap_err(),
+            l1.submit_batch_proof(r2, BatchProof::invalid())
+                .unwrap_err(),
             GmcError::ProofVerificationFailed
         );
         assert_eq!(l1.state_root(), r1, "failed proof retains the prior root");
@@ -909,7 +912,8 @@ mod tests {
 
         // valid -> advances to r3 (only the verified batches move the root)
         assert_eq!(
-            l1.submit_batch_proof(r3, BatchProof::valid_for(r3)).unwrap(),
+            l1.submit_batch_proof(r3, BatchProof::valid_for(r3))
+                .unwrap(),
             r3
         );
         assert_eq!(l1.state_root(), r3);

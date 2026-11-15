@@ -71,11 +71,9 @@ proptest! {
         prop_assert_eq!(&record.active_key, &vk);
         prop_assert_eq!(record.created_at, created_at);
 
-        // Owner is itself: recorded as a self-sovereign depth-0 root (owner = None).
-        prop_assert!(ownership.contains(&id));
+        // Single-layer coFay ownership registry remains empty for a personal iFay.
+        prop_assert!(!ownership.contains(&id));
         prop_assert!(ownership.owner_of(&id).is_none());
-        prop_assert_eq!(ownership.depth_of(&id), Some(0));
-        prop_assert!(ownership.node(&id).expect("root node recorded").is_root());
 
         // --- 单射性 (Requirement 2.4): distinct vks under one scheme -> distinct ids -
         let ed25519 = SchemeTag::ed25519();

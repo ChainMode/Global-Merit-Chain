@@ -90,15 +90,22 @@ fn stewards() -> impl Strategy<Value = Vec<FayID>> {
 
 /// A single derive request specification.
 fn derive_spec() -> impl Strategy<Value = DeriveSpec> {
-    (pool_chain_id(), parent_id(), domain(), stewards(), origin_type()).prop_map(
-        |(proposed_id, parent_id, domain, stewards, origin_type)| DeriveSpec {
-            proposed_id,
-            parent_id,
-            domain,
-            stewards,
-            origin_type,
-        },
+    (
+        pool_chain_id(),
+        parent_id(),
+        domain(),
+        stewards(),
+        origin_type(),
     )
+        .prop_map(
+            |(proposed_id, parent_id, domain, stewards, origin_type)| DeriveSpec {
+                proposed_id,
+                parent_id,
+                domain,
+                stewards,
+                origin_type,
+            },
+        )
 }
 
 /// A sequence of `0..=max_len` derive request specifications.

@@ -39,8 +39,10 @@ struct RawOp {
 }
 
 fn raw_op() -> impl Strategy<Value = RawOp> {
-    (0usize..256, 0usize..DOMAINS.len())
-        .prop_map(|(parent_sel, domain_sel)| RawOp { parent_sel, domain_sel })
+    (0usize..256, 0usize..DOMAINS.len()).prop_map(|(parent_sel, domain_sel)| RawOp {
+        parent_sel,
+        domain_sel,
+    })
 }
 
 /// A sequence of `0..=max_len` derive operations.

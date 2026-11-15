@@ -26,9 +26,7 @@
 //! independently, and asserts the resolved reference is the very slot of that chain
 //! (or `None` when no path node defines one).
 
-use gmc_core::registry::{
-    ChainRegistry, EvaluationMechanismRef, NestedMeritChain, OriginType,
-};
+use gmc_core::registry::{ChainRegistry, EvaluationMechanismRef, NestedMeritChain, OriginType};
 use gmc_core::types::{ChainId, FayID, Timestamp};
 use proptest::prelude::*;
 

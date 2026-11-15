@@ -278,10 +278,7 @@ pub enum OwnershipOp {
     /// Attach `cofay` beneath `owner`.
     Attach { cofay: IdLabel, owner: IdLabel },
     /// Re-attach `cofay` beneath `new_owner` (the cycle-risk operation).
-    Reparent {
-        cofay: IdLabel,
-        new_owner: IdLabel,
-    },
+    Reparent { cofay: IdLabel, new_owner: IdLabel },
 }
 
 /// A single attach/re-parent operation over the shared identity-label pool.
@@ -409,8 +406,12 @@ pub fn guardian_config() -> impl Strategy<Value = GuardianConfigInput> {
     guardian_set(6).prop_flat_map(|guardians| {
         // N is the deduplicated guardian count; allow thresholds from 0 to N + 2.
         let raw_n = guardians.len() as u32;
-        (Just(guardians), 0u32..=(raw_n + 2))
-            .prop_map(|(guardians, threshold)| GuardianConfigInput { guardians, threshold })
+        (Just(guardians), 0u32..=(raw_n + 2)).prop_map(|(guardians, threshold)| {
+            GuardianConfigInput {
+                guardians,
+                threshold,
+            }
+        })
     })
 }
 

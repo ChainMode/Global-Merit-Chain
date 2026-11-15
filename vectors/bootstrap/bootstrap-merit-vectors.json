@@ -1,0 +1,43 @@
+{
+  "suite": "gmchain-bootstrap-merit-v1",
+  "description": "Conformance vectors for zero-floor (B_i = 0) cold-start bootstrap Merit batches, one-way monetary boundary, and opaqueRef concave governance weight invariance.",
+  "vectors": [
+    {
+      "id": "BOOT-01-neutral-grant-zero-floor-preserves-min-merit",
+      "scenario": "bootstrap_grant",
+      "preset": "neutral",
+      "opaqueRef": "gmcref_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "amountInt": 50,
+      "expectedFloorB": "0",
+      "expectedMinMeritUnchanged": true,
+      "expectedOutcome": "allow"
+    },
+    {
+      "id": "BOOT-02-multi-ifay-lifetime-cap-enforced-by-opaque-ref",
+      "scenario": "lifetime_cap_across_ifays",
+      "preset": "neutral",
+      "opaqueRef": "gmcref_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "firstIfayAmountInt": 100,
+      "secondIfayAmountInt": 100,
+      "thirdIfayOverflowInt": 1,
+      "expectedOutcome": "deny",
+      "expectedError": "BootstrapCapExceeded"
+    },
+    {
+      "id": "BOOT-03-redemption-and-transfer-unconditionally-rejected",
+      "scenario": "one_way_lock",
+      "batchId": "boot-batch-01",
+      "expectedOutcome": "deny",
+      "expectedError": "OperationNotAllowed"
+    },
+    {
+      "id": "BOOT-04-split-ifays-same-opaque-ref-equal-consolidated-weight",
+      "scenario": "concave_voting_normalization",
+      "opaqueRef": "gmcref_cccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "splitAmountsInt": [36, 64],
+      "consolidatedAmountInt": 100,
+      "expectedConsolidatedWeightRaw": 10000000,
+      "expectedOutcome": "allow"
+    }
+  ]
+}

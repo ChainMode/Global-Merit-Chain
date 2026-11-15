@@ -158,9 +158,7 @@ pub fn reference_keypair(seed: &[u8]) -> (SigningKey, VerifyingKey) {
     let sk_bytes: Vec<u8> = (0..REFERENCE_KEY_LEN)
         .map(|i| {
             let s = basis[i % basis.len()];
-            s.wrapping_add(i as u8)
-                .wrapping_mul(31)
-                .wrapping_add(0x5b)
+            s.wrapping_add(i as u8).wrapping_mul(31).wrapping_add(0x5b)
         })
         .collect();
     let sk = SigningKey::new(sk_bytes);
@@ -292,7 +290,10 @@ mod tests {
         let msg = b"deterministic payload";
         let sig_a = ReferenceSigner.sign(&sk, msg).expect("sign a");
         let sig_b = ReferenceSigner.sign(&sk, msg).expect("sign b");
-        assert_eq!(sig_a, sig_b, "identical inputs must yield identical signatures");
+        assert_eq!(
+            sig_a, sig_b,
+            "identical inputs must yield identical signatures"
+        );
 
         // verify returns the same answer no matter how many times it is called.
         for _ in 0..5 {
@@ -326,7 +327,10 @@ mod tests {
     fn reference_scheme_tag_is_distinct_from_ed25519() {
         assert_eq!(ReferenceSigner.scheme_tag().as_str(), REFERENCE_SCHEME_TAG);
         assert_eq!(ReferenceVerifier.scheme_tag(), ReferenceSigner.scheme_tag());
-        assert_ne!(ReferenceSigner.scheme_tag().as_str(), SchemeTag::ED25519_STR);
+        assert_ne!(
+            ReferenceSigner.scheme_tag().as_str(),
+            SchemeTag::ED25519_STR
+        );
     }
 
     /// The reference impls satisfy object-safety too, mirroring how gmc-node injects a

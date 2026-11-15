@@ -19,7 +19,7 @@
 //! registry is exactly "a registry built from a sequence of valid derivations", and
 //! the Property 1 invariants are then asserted over every non-root chain.
 
-use gmc_core::registry::{ChainRegistry, DeriveRequest, NestedMeritChain, OriginType, MAX_DEPTH};
+use gmc_core::registry::{ChainRegistry, DeriveRequest, NestedMeritChain, OriginType};
 use gmc_core::types::{ChainId, FayID, Timestamp};
 use proptest::prelude::*;
 
@@ -49,16 +49,8 @@ proptest! {
         let mut created: Vec<ChainId> = vec![root_id.clone()];
 
         for (step, selector) in parent_selectors.into_iter().enumerate() {
-            // Resolve a parent that already exists in the registry.
-            let mut parent_id = created[(selector as usize) % created.len()].clone();
-
-            // Keep the derived depth within the bound so the request stays valid (a
-            // parent already at MAX_DEPTH cannot accept a child); fall back to the
-            // depth-0 root, which can always accept another child.
-            let parent_depth = registry.get(&parent_id).map(|c| c.depth()).unwrap_or(0);
-            if parent_depth >= MAX_DEPTH {
-                parent_id = root_id.clone();
-            }
+            // Resolve a parent that already exists in the registry (no fixed depth cap).
+            let parent_id = created[(selector as usize) % created.len()].clone();
 
             // A brand-new unique id (no cycle, no id clash) plus a globally unique
             // domain (so the `(parent, domain)` pair is always unique) and a non-empty

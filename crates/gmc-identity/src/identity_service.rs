@@ -46,7 +46,7 @@ use gmc_core::types::Timestamp;
 
 use crate::error::IdentityResult;
 use crate::identity_id::{derive_identity_id, IdentityId};
-use crate::ownership::OwnershipRegistry;
+use crate::ownership::{OwnerRef, OwnershipRegistry};
 use crate::pocket::PocketBinding;
 use crate::scheme::SchemeRegistry;
 use crate::types::{IdentityKind, Nonce, SchemeTag, VerifyingKey};
@@ -156,7 +156,7 @@ impl IdentityService {
     ///
     /// 1. **Derive + validate.** [`derive_identity_id`] resolves `tag` (unregistered →
     ///    [`SchemeUnsupported`](crate::error::IdentityError::SchemeUnsupported)) and
-    ///    validates `vk`'s byte format (malformed → 
+    ///    validates `vk`'s byte format (malformed →
     ///    [`KeyFormatInvalid`](crate::error::IdentityError::KeyFormatInvalid)). On either
     ///    error **nothing is created**: no ownership root, no pocket, no record.
     /// 2. **Record ownership as a root.** The iFay owns itself (self-sovereign), recorded
@@ -181,118 +181,68 @@ impl IdentityService {
     pub fn create_ifay(
         &mut self,
         registry: &SchemeRegistry,
-        ownership: &mut OwnershipRegistry,
+        _ownership: &mut OwnershipRegistry,
         binding: &mut PocketBinding,
         tag: &SchemeTag,
         vk: &VerifyingKey,
         created_at: Timestamp,
     ) -> IdentityResult<IdentityId> {
-        // (1) Validate scheme + vk format and derive the id BEFORE any mutation. A
-        // failure here returns early with no side effect (atomic — Requirements 2.5).
         let id = derive_identity_id(registry, tag, vk)?;
 
-        // Idempotent: re-creating an already-present iFay leaves its record untouched.
         if self.identities.contains_key(&id) {
-            // Keep ownership/binding consistent without overwriting anything: both
-            // register_root and bind are themselves idempotent no-ops for a present id.
-            ownership.register_root(&id)?;
             binding.bind(&id)?;
             return Ok(id);
         }
 
-        // (2) The iFay owns itself: record it as a depth-0 ownership root.
-        ownership.register_root(&id)?;
+        // Single-layer ownership stores ONLY `coFay -> OwnerRef`; an iFay is never a
+        // tree root inside `OwnershipRegistry`.
+        self.identities.insert(
+            id.clone(),
+            Identity::new_ifay(id.clone(), vk.clone(), created_at),
+        );
 
-        // (3) Store the iFay record: kind = IFay, active_key = vk, no retired keys,
-        // applied_nonce = 0, created_at as given.
-        self.identities
-            .insert(id.clone(), Identity::new_ifay(id.clone(), vk.clone(), created_at));
-
-        // (4) Bind its one MeritPocket (keyed by the canonical FayID).
         binding.bind(&id)?;
 
         Ok(id)
     }
 
-    /// Creates a **coFay** collective identity owned by `owner`, as the committed effect
-    /// of an authenticated `Identity_Core` `CreateCoFay` operation (design
-    /// *Identity_Service*: `createCoFay`; flow 3; Requirements 6.1, 6.7).
-    ///
-    /// This mirrors [`create_ifay`](Self::create_ifay)'s borrow-friendly collaborator
-    /// signature so [`crate::identity_core::IdentityState::apply`] can call it while
-    /// holding distinct `&self.registry` / `&mut self.ownership` / `&mut self.binding`
-    /// borrows. **Authentication (verify → authorize → nonce) is the caller's job** —
-    /// `Identity_Core` runs the full validation chain *before* invoking this method; here
-    /// we only perform the committed payload effect.
-    ///
-    /// Steps, in the design's fixed order — **all fallible validation runs before any
-    /// state is touched**, so a rejected request is atomic and leaves every collaborator
-    /// unchanged (Requirements 6.4/6.5/6.6, 13.4):
-    ///
-    /// 1. **Derive + validate.** [`derive_identity_id`] resolves `tag` (the owner's
-    ///    scheme tag) and validates `new_cofay_key`'s byte format; a malformed key →
-    ///    [`KeyFormatInvalid`](crate::error::IdentityError::KeyFormatInvalid). On error
-    ///    **nothing is created** (no attach, no record, no pocket).
-    /// 2. **Attach beneath the owner.** [`OwnershipRegistry::attach`] runs the ordered
-    ///    `owner exists → no cycle → depth ≤ 16` guard, propagating
-    ///    [`OwnerNotFound`](crate::error::IdentityError::OwnerNotFound) /
-    ///    [`OwnershipCycle`](crate::error::IdentityError::OwnershipCycle) /
-    ///    [`OwnershipDepthExceeded`](crate::error::IdentityError::OwnershipDepthExceeded).
-    ///    On any error **nothing is created** — `attach` itself writes nothing on
-    ///    failure, and steps 3–4 below never run. Attaching first and only proceeding on
-    ///    `Ok` is what makes the whole effect atomic.
-    /// 3. **Store the record.** A `kind = CoFay` [`Identity`] with
-    ///    `active_key = new_cofay_key`, empty `retired_keys`, `applied_nonce = 0`, and
-    ///    the given `created_at`.
-    /// 4. **Bind a MeritPocket.** [`PocketBinding::bind`] establishes the coFay's own
-    ///    one-to-one binding keyed by its canonical `FayID` (Requirement 6.7).
-    ///
-    /// Returns the derived coFay [`IdentityId`].
-    ///
-    /// ## Idempotent re-creation
-    ///
-    /// As with [`create_ifay`](Self::create_ifay), the derivation is deterministic, so a
-    /// re-submitted `CreateCoFay` for an already-present coFay derives the **same** id
-    /// and is treated as an **idempotent no-op**: the existing record is left untouched
-    /// and the existing id returned (its `created_at` / `active_key` / nonce are not
-    /// overwritten). `attach` and `bind` are themselves idempotent for a present id.
+    /// Creates a **coFay** collective identity owned by a single-layer [`OwnerRef`]
+    /// (`Human` or `Organization`), validating key format and owner type atomically
+    /// before mutating any collaborator (`realign-cofay-ownership-to-fayid`).
+    #[allow(clippy::too_many_arguments)]
     pub fn create_cofay(
         &mut self,
         registry: &SchemeRegistry,
         ownership: &mut OwnershipRegistry,
         binding: &mut PocketBinding,
-        owner: &IdentityId,
+        scheme_tag: &SchemeTag,
+        owner: &OwnerRef,
         new_cofay_key: &VerifyingKey,
         created_at: Timestamp,
     ) -> IdentityResult<IdentityId> {
-        // (1) Validate scheme + key format and derive the coFay id BEFORE any mutation.
-        // Reuse the owner's scheme tag (the coFay is authenticated under the same
-        // scheme). A failure here returns early with no side effect (atomic).
-        let id = derive_identity_id(registry, owner.scheme_tag(), new_cofay_key)?;
+        let id = derive_identity_id(registry, scheme_tag, new_cofay_key)?;
+        owner.validate()?;
 
-        // Idempotent: re-creating an already-present coFay leaves its record untouched.
-        // Keep ownership/binding consistent without overwriting anything (attach and
-        // bind are idempotent no-ops for a present id).
-        if self.identities.contains_key(&id) {
-            ownership.attach(&id, owner)?;
+        if let Some(existing) = self.identities.get(&id) {
+            if existing.kind != IdentityKind::CoFay {
+                return Err(crate::error::IdentityError::OwnerTypeNotAllowed);
+            }
+            if let Some(existing_owner) = ownership.owner_of(&id) {
+                if existing_owner != owner {
+                    return Err(crate::error::IdentityError::OwnerTypeNotAllowed);
+                }
+            } else {
+                ownership.set_owner(id.clone(), owner.clone())?;
+            }
             binding.bind(&id)?;
             return Ok(id);
         }
 
-        // (2) Attach beneath the owner FIRST: this runs the owner-exists → no-cycle →
-        // depth-bound guard and writes nothing on failure. Only on Ok do we proceed to
-        // insert the record and bind the pocket, so the whole effect is atomic
-        // (Requirements 6.4/6.5/6.6).
-        ownership.attach(&id, owner)?;
-
-        // (3) Store the coFay record: kind = CoFay, active_key = new_cofay_key, no
-        // retired keys, applied_nonce = 0, created_at as given.
+        ownership.set_owner(id.clone(), owner.clone())?;
         self.identities.insert(
             id.clone(),
             Identity::new_cofay(id.clone(), new_cofay_key.clone(), created_at),
         );
-
-        // (4) Bind its own independent MeritPocket (Requirement 6.7).
         binding.bind(&id)?;
 
         Ok(id)
@@ -346,12 +296,19 @@ mod tests {
 
     /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed`.
     fn vk(seed: u8) -> VerifyingKey {
-        let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+        let bytes: Vec<u8> = (0..32u8)
+            .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+            .collect();
         VerifyingKey::new(bytes)
     }
 
     /// Fresh set of collaborators for a creation test.
-    fn fixtures() -> (SchemeRegistry, OwnershipRegistry, PocketBinding, IdentityService) {
+    fn fixtures() -> (
+        SchemeRegistry,
+        OwnershipRegistry,
+        PocketBinding,
+        IdentityService,
+    ) {
         (
             SchemeRegistry::default(),
             OwnershipRegistry::new(),
@@ -371,7 +328,14 @@ mod tests {
         let created_at = Timestamp::from_secs(1_700_000_000);
 
         let id = svc
-            .create_ifay(&registry, &mut ownership, &mut binding, &tag, &key, created_at)
+            .create_ifay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &tag,
+                &key,
+                created_at,
+            )
             .expect("valid ed25519 vk");
 
         let record = svc.get(&id).expect("identity recorded");
@@ -386,9 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn create_ifay_owner_is_self_recorded_as_depth_zero_root() {
-        // Requirement 2.1: owner = itself (self-sovereign), recorded as an ownership root
-        // (owner = None, depth = 0, path = [id]).
+    fn create_ifay_leaves_cofay_ownership_registry_empty() {
         let (registry, mut ownership, mut binding, mut svc) = fixtures();
         let id = svc
             .create_ifay(
@@ -401,11 +363,9 @@ mod tests {
             )
             .unwrap();
 
-        assert!(ownership.contains(&id));
-        assert_eq!(ownership.owner_of(&id), None); // self-sovereign root
-        assert_eq!(ownership.depth_of(&id), Some(0));
-        assert_eq!(ownership.path_of(&id), Some(&vec![id.clone()]));
-        assert!(ownership.node(&id).unwrap().is_root());
+        assert!(!ownership.contains(&id));
+        assert_eq!(ownership.owner_of(&id), None);
+        assert!(ownership.is_empty());
     }
 
     #[test]
@@ -487,7 +447,14 @@ mod tests {
         let created_at = Timestamp::from_secs(100);
 
         let id1 = svc
-            .create_ifay(&registry, &mut ownership, &mut binding, &tag, &key, created_at)
+            .create_ifay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &tag,
+                &key,
+                created_at,
+            )
             .unwrap();
         let record_before = svc.get(&id1).cloned();
 
@@ -520,10 +487,24 @@ mod tests {
         let tag = SchemeTag::ed25519();
 
         let id_a = svc
-            .create_ifay(&registry, &mut ownership, &mut binding, &tag, &vk(10), Timestamp::from_secs(1))
+            .create_ifay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &tag,
+                &vk(10),
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         let id_b = svc
-            .create_ifay(&registry, &mut ownership, &mut binding, &tag, &vk(11), Timestamp::from_secs(2))
+            .create_ifay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &tag,
+                &vk(11),
+                Timestamp::from_secs(2),
+            )
             .unwrap();
 
         assert_ne!(id_a, id_b);
@@ -554,7 +535,14 @@ mod tests {
 
         let key = VerifyingKey::new(vec![5u8; 8]);
         let id = svc
-            .create_ifay(&registry, &mut ownership, &mut binding, &tag, &key, Timestamp::from_secs(1))
+            .create_ifay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &tag,
+                &key,
+                Timestamp::from_secs(1),
+            )
             .expect("8-byte vk valid under vk8 scheme");
         assert_eq!(svc.get(&id).unwrap().active_key, key);
 
@@ -571,224 +559,118 @@ mod tests {
         assert_eq!(svc.len(), 1); // only the valid 8-byte iFay exists
     }
 
-    // --- create_cofay: happy path (Requirements 6.1, 6.2, 6.3, 6.7) --------
-
-    /// Creates a reference-scheme iFay root in the given collaborators and returns its id.
-    fn make_root_ifay(
-        registry: &SchemeRegistry,
-        ownership: &mut OwnershipRegistry,
-        binding: &mut PocketBinding,
-        svc: &mut IdentityService,
-        owner_key: &VerifyingKey,
-    ) -> IdentityId {
-        svc.create_ifay(
-            registry,
-            ownership,
-            binding,
-            &SchemeTag::ed25519(),
-            owner_key,
-            Timestamp::from_secs(1),
-        )
-        .expect("valid owner iFay")
-    }
+    // --- create_cofay: single-layer Human / Organization ownership ----------
 
     #[test]
-    fn create_cofay_records_cofay_kind_attached_under_owner_with_pocket() {
-        // Requirement 6.1/6.7: an authenticated CreateCoFay creates a CoFay-kind record,
-        // attaches it beneath the owner (depth = owner.depth + 1, root-first path), and
-        // binds its own independent MeritPocket.
+    fn create_cofay_records_cofay_kind_under_single_layer_owner_with_pocket() {
+        use crate::ownership::OwnerKind;
         let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        let owner_key = vk(1);
-        let owner = make_root_ifay(&registry, &mut ownership, &mut binding, &mut svc, &owner_key);
-
+        let owner = OwnerRef::new(
+            "hid_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            OwnerKind::Human,
+        );
         let cofay_key = vk(2);
         let created_at = Timestamp::from_secs(1_700_000_000);
         let cofay = svc
-            .create_cofay(&registry, &mut ownership, &mut binding, &owner, &cofay_key, created_at)
-            .expect("owner exists, no cycle, depth ok");
+            .create_cofay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &SchemeTag::ed25519(),
+                &owner,
+                &cofay_key,
+                created_at,
+            )
+            .expect("human owner accepted");
 
-        // The record is a CoFay with the supplied active key and created_at.
         let record = svc.get(&cofay).expect("coFay recorded");
         assert_eq!(record.kind, IdentityKind::CoFay);
         assert_eq!(record.active_key, cofay_key);
-        assert!(record.retired_keys.is_empty());
-        assert_eq!(record.applied_nonce, 0);
-        assert_eq!(record.created_at, created_at);
-
-        // Attached beneath the owner: owner recorded, depth 1, root-first path [owner, cofay].
         assert_eq!(ownership.owner_of(&cofay), Some(&owner));
-        assert_eq!(ownership.depth_of(&cofay), Some(1));
-        assert_eq!(ownership.path_of(&cofay), Some(&vec![owner.clone(), cofay.clone()]));
-        // path[0] is the root iFay (Requirement 6.3).
-        assert_eq!(svc.get(&owner).unwrap().kind, IdentityKind::IFay);
-
-        // Its own independent MeritPocket is bound, keyed by its canonical FayID.
         assert_eq!(binding.pocket_key(&cofay), Some(cofay.to_fay_id()));
         assert!(binding.pocket(&cofay).is_some());
-        // Two identities (owner iFay + coFay) and two pockets exist.
-        assert_eq!(svc.len(), 2);
-        assert_eq!(binding.len(), 2);
-        assert_ne!(binding.pocket_key(&owner), binding.pocket_key(&cofay));
     }
 
     #[test]
-    fn create_cofay_nested_under_a_cofay_extends_depth_and_path() {
-        // A coFay may own another coFay (org-in-org); depth and path extend by one level.
+    fn create_cofay_rejects_cofay_or_ifay_owner_atomically() {
+        use crate::ownership::OwnerKind;
         let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        let owner = make_root_ifay(&registry, &mut ownership, &mut binding, &mut svc, &vk(1));
-
-        let mid = svc
-            .create_cofay(&registry, &mut ownership, &mut binding, &owner, &vk(2), Timestamp::from_secs(2))
-            .unwrap();
-        let leaf = svc
-            .create_cofay(&registry, &mut ownership, &mut binding, &mid, &vk(3), Timestamp::from_secs(3))
-            .unwrap();
-
-        assert_eq!(svc.get(&leaf).unwrap().kind, IdentityKind::CoFay);
-        assert_eq!(ownership.depth_of(&leaf), Some(2));
-        assert_eq!(
-            ownership.path_of(&leaf),
-            Some(&vec![owner.clone(), mid.clone(), leaf.clone()])
+        let bad_owner = OwnerRef::new(
+            "cofay_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            OwnerKind::Organization,
         );
-        assert_eq!(svc.len(), 3);
-    }
-
-    // --- create_cofay: rejection paths are atomic (nothing created) --------
-
-    #[test]
-    fn create_cofay_malformed_key_is_key_format_invalid_and_creates_nothing() {
-        // Requirement 2.5 (reused for coFay): a vk violating the scheme's ByteFormat →
-        // KeyFormatInvalid, and NOTHING is created (no attach, no record, no pocket).
-        let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        let owner = make_root_ifay(&registry, &mut ownership, &mut binding, &mut svc, &vk(1));
-        let before_owner_pocket = binding.pocket(&owner).cloned();
-
-        let bad = VerifyingKey::new(vec![0u8; 31]); // ed25519 requires exactly 32
-        let result =
-            svc.create_cofay(&registry, &mut ownership, &mut binding, &owner, &bad, Timestamp::from_secs(2));
-
-        assert_eq!(result, Err(IdentityError::KeyFormatInvalid));
-        // Only the owner iFay exists; nothing was created for the coFay.
-        assert_eq!(svc.len(), 1);
-        assert_eq!(ownership.len(), 1);
-        assert_eq!(binding.len(), 1);
-        assert_eq!(binding.pocket(&owner).cloned(), before_owner_pocket);
-    }
-
-    #[test]
-    fn create_cofay_unknown_owner_is_owner_not_found_and_creates_nothing() {
-        // Requirement 6.4: an owner registered in neither ownership nor identity records
-        // → OwnerNotFound, and NOTHING is created.
-        let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        // A well-formed owner id that was never created as an identity/root.
-        let ghost_owner = derive_identity_id(&registry, &SchemeTag::ed25519(), &vk(7)).unwrap();
-
         let result = svc.create_cofay(
             &registry,
             &mut ownership,
             &mut binding,
-            &ghost_owner,
-            &vk(2),
-            Timestamp::from_secs(2),
+            &SchemeTag::ed25519(),
+            &bad_owner,
+            &vk(3),
+            Timestamp::from_secs(3),
         );
-
-        assert_eq!(result, Err(IdentityError::OwnerNotFound));
+        assert_eq!(result, Err(IdentityError::OwnerTypeNotAllowed));
         assert!(svc.is_empty());
         assert!(ownership.is_empty());
         assert!(binding.is_empty());
     }
 
     #[test]
-    fn create_cofay_self_owning_reattach_is_cycle_and_state_unchanged() {
-        // Requirement 6.5: re-submitting CreateCoFay for an EXISTING coFay but naming
-        // that coFay itself as the owner would form a self-parent cycle → OwnershipCycle,
-        // with state byte-for-byte unchanged (nothing newly created, no re-parent).
+    fn create_cofay_malformed_key_is_key_format_invalid_and_creates_nothing() {
+        use crate::ownership::OwnerKind;
         let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        let owner = make_root_ifay(&registry, &mut ownership, &mut binding, &mut svc, &vk(1));
-        let cofay_key = vk(2);
-        let cofay = svc
-            .create_cofay(&registry, &mut ownership, &mut binding, &owner, &cofay_key, Timestamp::from_secs(2))
-            .unwrap();
-
-        // Snapshot the whole world, then attempt the cyclic re-create.
-        let svc_before = svc.clone();
-        let ownership_before = ownership.clone();
-        let binding_before = binding.clone();
-
-        // Re-deriving with (owner-scheme, cofay_key) under owner == cofay forms a cycle.
-        let result =
-            svc.create_cofay(&registry, &mut ownership, &mut binding, &cofay, &cofay_key, Timestamp::from_secs(3));
-
-        assert_eq!(result, Err(IdentityError::OwnershipCycle));
-        assert_eq!(svc, svc_before, "rejected create must leave identities unchanged");
-        assert_eq!(ownership, ownership_before, "ownership unchanged");
-        assert_eq!(binding, binding_before, "binding unchanged");
-    }
-
-    #[test]
-    fn create_cofay_beyond_max_depth_is_rejected_and_creates_nothing() {
-        // Requirement 6.6: a CreateCoFay that would push depth beyond 16 (root iFay = 0)
-        // → OwnershipDepthExceeded, and NOTHING is created.
-        let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        let owner = make_root_ifay(&registry, &mut ownership, &mut binding, &mut svc, &vk(0));
-
-        // Build a chain root(0) -> c1(1) -> ... -> c16(16) at exactly MAX_DEPTH.
-        let mut parent = owner;
-        for d in 1..=16u8 {
-            let child = svc
-                .create_cofay(
-                    &registry,
-                    &mut ownership,
-                    &mut binding,
-                    &parent,
-                    &vk(d.wrapping_add(10)),
-                    Timestamp::from_secs(d as u64 + 1),
-                )
-                .expect("within depth bound");
-            assert_eq!(ownership.depth_of(&child), Some(d as u32));
-            parent = child;
-        }
-
-        let svc_before = svc.clone();
-        let ownership_before = ownership.clone();
-        let binding_before = binding.clone();
-
-        // Attaching beneath the depth-16 leaf would be depth 17 → rejected.
+        let owner = OwnerRef::new("org_ifay-foundation", OwnerKind::Organization);
+        let bad = VerifyingKey::new(vec![0u8; 31]);
         let result = svc.create_cofay(
             &registry,
             &mut ownership,
             &mut binding,
-            &parent,
-            &vk(200),
-            Timestamp::from_secs(100),
+            &SchemeTag::ed25519(),
+            &owner,
+            &bad,
+            Timestamp::from_secs(2),
         );
-        assert_eq!(result, Err(IdentityError::OwnershipDepthExceeded));
-        assert_eq!(svc, svc_before);
-        assert_eq!(ownership, ownership_before);
-        assert_eq!(binding, binding_before);
+
+        assert_eq!(result, Err(IdentityError::KeyFormatInvalid));
+        assert!(svc.is_empty());
+        assert!(ownership.is_empty());
+        assert!(binding.is_empty());
     }
 
     #[test]
     fn create_cofay_is_idempotent_for_same_owner_and_key() {
-        // Re-submitting the same (owner, key) derives the same id and is an idempotent
-        // no-op: the existing record/pocket are untouched and counts stay the same.
+        use crate::ownership::OwnerKind;
         let (registry, mut ownership, mut binding, mut svc) = fixtures();
-        let owner = make_root_ifay(&registry, &mut ownership, &mut binding, &mut svc, &vk(1));
+        let owner = OwnerRef::new("org_ifay-foundation", OwnerKind::Organization);
         let cofay_key = vk(2);
 
         let id1 = svc
-            .create_cofay(&registry, &mut ownership, &mut binding, &owner, &cofay_key, Timestamp::from_secs(2))
+            .create_cofay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &SchemeTag::ed25519(),
+                &owner,
+                &cofay_key,
+                Timestamp::from_secs(2),
+            )
             .unwrap();
         let record_before = svc.get(&id1).cloned();
 
         let id2 = svc
-            .create_cofay(&registry, &mut ownership, &mut binding, &owner, &cofay_key, Timestamp::from_secs(999))
+            .create_cofay(
+                &registry,
+                &mut ownership,
+                &mut binding,
+                &SchemeTag::ed25519(),
+                &owner,
+                &cofay_key,
+                Timestamp::from_secs(999),
+            )
             .unwrap();
 
         assert_eq!(id1, id2);
-        assert_eq!(svc.len(), 2); // owner + one coFay only
-        assert_eq!(binding.len(), 2);
-        assert_eq!(svc.get(&id1).cloned(), record_before); // created_at not overwritten
-        assert_eq!(svc.get(&id1).unwrap().created_at, Timestamp::from_secs(2));
+        assert_eq!(svc.len(), 1);
+        assert_eq!(binding.len(), 1);
+        assert_eq!(svc.get(&id1).cloned(), record_before);
     }
 }

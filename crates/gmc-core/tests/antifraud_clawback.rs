@@ -132,7 +132,12 @@ fn perform_fraudulent_recognition(
     ledger: &mut QuotaLedger,
     amount: Decimal,
     now: Timestamp,
-) -> (RecordingService, gmc_core::recording::ContributionId, MintReceipt, Decimal) {
+) -> (
+    RecordingService,
+    gmc_core::recording::ContributionId,
+    MintReceipt,
+    Decimal,
+) {
     let service = MintingService::new();
     let config = cfg();
 
@@ -192,7 +197,10 @@ fn collusion_clawback_reverses_mint_to_exact_pre_mint_state() {
 
     // Snapshot the contributor's pocket *before* the fraudulent recognition mints.
     let pocket_before = pocket.clone();
-    let cur_before: Vec<Decimal> = SAMPLE_TIMES.iter().map(|&t| pocket.cur_merit(ts(t))).collect();
+    let cur_before: Vec<Decimal> = SAMPLE_TIMES
+        .iter()
+        .map(|&t| pocket.cur_merit(ts(t)))
+        .collect();
     let cur_at_now_before = pocket.cur_merit(now);
 
     let (_recording, _record_id, receipt, floor_before) =
@@ -214,7 +222,10 @@ fn collusion_clawback_reverses_mint_to_exact_pre_mint_state() {
 
     // The pocket is byte-for-byte back to its pre-mint state: no leftover batch and the
     // floor restored — a consistent rollback.
-    assert_eq!(pocket, pocket_before, "clawback must restore the exact pre-mint pocket");
+    assert_eq!(
+        pocket, pocket_before,
+        "clawback must restore the exact pre-mint pocket"
+    );
     assert_eq!(pocket.min_merit(), pocket_before.min_merit());
     assert_eq!(pocket.batches.len(), pocket_before.batches.len());
 
@@ -226,7 +237,10 @@ fn collusion_clawback_reverses_mint_to_exact_pre_mint_state() {
             before,
             "curMerit not restored at t={t} after clawback"
         );
-        assert!(pocket.invariant_holds(ts(t)), "invariant violated at t={t} after clawback");
+        assert!(
+            pocket.invariant_holds(ts(t)),
+            "invariant violated at t={t} after clawback"
+        );
     }
 }
 
@@ -251,13 +265,19 @@ fn collusion_clawback_revokes_the_recognition_result() {
 
     // The recognition is no longer Passed: it is now Failed ("认定未通过"), while the
     // record itself is retained for audit.
-    let record = recording.get(&record_id).expect("record retained after revocation");
+    let record = recording
+        .get(&record_id)
+        .expect("record retained after revocation");
     assert_eq!(
         record.evaluation_status(),
         EvaluationStatus::Failed,
         "the colluded recognition must be revoked (Passed -> Failed)"
     );
-    assert_eq!(recording.len(), 1, "the revoked record is retained, not deleted");
+    assert_eq!(
+        recording.len(),
+        1,
+        "the revoked record is retained, not deleted"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -286,13 +306,27 @@ fn collusion_clawback_penalises_all_participants_and_anchors_outcome_to_l1() {
     for voter in ["voter-a", "voter-b"] {
         let history = collusive_history(voter, "recognition-collusion-grant", 100);
         assert!(
-            detect_anomaly(&FayID::new(voter), "recognition-collusion-grant", &history, now)
-                .is_some(),
+            detect_anomaly(
+                &FayID::new(voter),
+                "recognition-collusion-grant",
+                &history,
+                now
+            )
+            .is_some(),
             "{voter}'s collusive approval pattern must be detected as anomalous"
         );
-        engine.record_if_anomalous(&FayID::new(voter), "recognition-collusion-grant", &history, now);
+        engine.record_if_anomalous(
+            &FayID::new(voter),
+            "recognition-collusion-grant",
+            &history,
+            now,
+        );
     }
-    assert_eq!(engine.pending_audit().len(), 2, "both colluding voters flagged");
+    assert_eq!(
+        engine.pending_audit().len(),
+        2,
+        "both colluding voters flagged"
+    );
 
     // --- Clawback handling: revoke + reverse mint + penalise + anchor to L1. ---
     recording
@@ -307,7 +341,11 @@ fn collusion_clawback_penalises_all_participants_and_anchors_outcome_to_l1() {
     // Retroactive penalty for every participant (Requirement 11.6 对所有参与者发起
     // 事后追溯惩罚) per the existing L1 penalty mechanism.
     for subject in &participants {
-        l1.record_penalty(PenaltyRecord::new(subject.clone(), "collusion-clawback", now));
+        l1.record_penalty(PenaltyRecord::new(
+            subject.clone(),
+            "collusion-clawback",
+            now,
+        ));
     }
     // Anchor the handling result: the recognition outcome, now revoked (passed=false).
     l1.store_vote_result(VoteResultRecord::new(
@@ -321,7 +359,9 @@ fn collusion_clawback_penalises_all_participants_and_anchors_outcome_to_l1() {
     assert_eq!(l1.penalties().len(), participants.len());
     for subject in &participants {
         assert!(
-            l1.penalties().iter().any(|p| &p.subject == subject && p.reason == "collusion-clawback"),
+            l1.penalties()
+                .iter()
+                .any(|p| &p.subject == subject && p.reason == "collusion-clawback"),
             "missing retroactive penalty for {subject}"
         );
     }
@@ -330,14 +370,24 @@ fn collusion_clawback_penalises_all_participants_and_anchors_outcome_to_l1() {
     let outcome = l1
         .vote_result("recognition-collusion-grant")
         .expect("the clawback outcome is anchored to L1");
-    assert!(!outcome.passed, "the anchored recognition outcome must be revoked");
+    assert!(
+        !outcome.passed,
+        "the anchored recognition outcome must be revoked"
+    );
 
     // Anchoring advanced the L1 state root / version, and the audit log captured both
     // the penalties and the outcome anchoring.
-    assert_ne!(l1.state_root(), root_before, "anchoring must advance the state root");
+    assert_ne!(
+        l1.state_root(),
+        root_before,
+        "anchoring must advance the state root"
+    );
     assert!(l1.version() > version_before);
     assert_eq!(
-        l1.anchor_log().iter().filter(|e| e.kind == AnchorKind::Penalty).count(),
+        l1.anchor_log()
+            .iter()
+            .filter(|e| e.kind == AnchorKind::Penalty)
+            .count(),
         participants.len()
     );
     assert!(l1
@@ -372,7 +422,11 @@ fn collusion_vote_fraud_full_clawback_is_consistent() {
     let mut l1 = L1Settlement::new();
     recording.mark_evaluation_result(&record_id, false).unwrap();
     clawback_mint(&mut pocket, &receipt, floor_before);
-    l1.record_penalty(PenaltyRecord::new(FayID::new("fay-cheater"), "collusion-clawback", now));
+    l1.record_penalty(PenaltyRecord::new(
+        FayID::new("fay-cheater"),
+        "collusion-clawback",
+        now,
+    ));
     l1.store_vote_result(VoteResultRecord::new(
         "recognition-collusion-grant",
         "collusion vote-fraud clawback",
@@ -389,6 +443,13 @@ fn collusion_vote_fraud_full_clawback_is_consistent() {
     );
     // (c) Handling result anchored: penalty recorded + revoked outcome on L1.
     assert_eq!(l1.penalties().len(), 1);
-    assert!(!l1.vote_result("recognition-collusion-grant").unwrap().passed);
-    assert!(l1.version() >= 2, "both the penalty and the outcome were anchored");
+    assert!(
+        !l1.vote_result("recognition-collusion-grant")
+            .unwrap()
+            .passed
+    );
+    assert!(
+        l1.version() >= 2,
+        "both the penalty and the outcome were anchored"
+    );
 }

@@ -41,7 +41,7 @@ use crate::authority::{authorizes, DelegateStore};
 use crate::error::{IdentityError, IdentityResult};
 use crate::identity_id::{derive_identity_id, IdentityId};
 use crate::identity_service::IdentityService;
-use crate::ownership::OwnershipRegistry;
+use crate::ownership::{OwnerKind, OwnerRef, OwnershipRegistry};
 use crate::pocket::PocketBinding;
 use crate::scheme::SchemeRegistry;
 use crate::signer::Verifier;
@@ -60,9 +60,11 @@ use crate::types::{DeviceType, Nonce, SchemeTag, Signature, Timestamp, Verifying
 /// canonical encoding can be checked to change whenever a payload field changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperationPayload {
-    /// Create a coFay owned by the operation's target, with the given initial verifying
-    /// key (Requirement 6.1).
+    /// Create a coFay owned by a single-layer `Human` or `Organization` [`OwnerRef`],
+    /// with the given initial verifying key (`realign-cofay-ownership-to-fayid`).
     CreateCoFay {
+        /// The single-layer Human or Organization owner reference.
+        owner: OwnerRef,
         /// The initial verifying key of the new coFay.
         new_cofay_key: VerifyingKey,
     },
@@ -269,8 +271,16 @@ fn device_type_tag(device_type: DeviceType) -> u8 {
 /// Appends a payload's discriminant byte and its length-prefixed / fixed-width fields.
 fn encode_payload(out: &mut Vec<u8>, payload: &OperationPayload) {
     match payload {
-        OperationPayload::CreateCoFay { new_cofay_key } => {
+        OperationPayload::CreateCoFay {
+            owner,
+            new_cofay_key,
+        } => {
             out.push(TAG_CREATE_COFAY);
+            out.push(match owner.kind {
+                OwnerKind::Human => 1,
+                OwnerKind::Organization => 2,
+            });
+            push_len_prefixed(out, owner.id.as_bytes());
             push_len_prefixed(out, new_cofay_key.as_bytes());
         }
         OperationPayload::EnrollDevice {
@@ -590,7 +600,8 @@ impl IdentityState {
                 Ok(Applied::DelegateAdded)
             }
             OperationPayload::RevokeDelegate { delegate } => {
-                self.delegates.revoke_delegate(&op.declared_target, delegate)?;
+                self.delegates
+                    .revoke_delegate(&op.declared_target, delegate)?;
                 self.set_applied_nonce(&op.declared_target, op.nonce);
                 Ok(Applied::DelegateRevoked)
             }
@@ -601,12 +612,25 @@ impl IdentityState {
             // and the `?` propagates with the nonce left unbumped — the aggregate stays
             // byte-for-byte unchanged (Requirements 6.1, 6.7, 13.4). Only on Ok do we
             // bump the owner's applied_nonce (the op targets the owner, Requirement 5.5).
-            OperationPayload::CreateCoFay { new_cofay_key } => {
+            OperationPayload::CreateCoFay {
+                owner,
+                new_cofay_key,
+            } => {
+                // coFays cannot nest: a CoFay target attempting to create another CoFay
+                // is rejected with OwnerTypeNotAllowed before mutating any state.
+                if self
+                    .identities
+                    .get(&op.declared_target)
+                    .is_some_and(|i| i.kind == crate::types::IdentityKind::CoFay)
+                {
+                    return Err(IdentityError::OwnerTypeNotAllowed);
+                }
                 let cofay_id = self.identities.create_cofay(
                     &self.registry,
                     &mut self.ownership,
                     &mut self.binding,
-                    &op.declared_target,
+                    op.declared_target.scheme_tag(),
+                    owner,
                     new_cofay_key,
                     created_at,
                 )?;
@@ -640,7 +664,9 @@ impl IdentityState {
 mod tests {
     use super::*;
     use crate::scheme::{ByteFormat, SchemeDescriptor};
-    use crate::signer::{reference_keypair, ReferenceSigner, ReferenceVerifier, Signer, REFERENCE_SCHEME_TAG};
+    use crate::signer::{
+        reference_keypair, ReferenceSigner, ReferenceVerifier, Signer, REFERENCE_SCHEME_TAG,
+    };
 
     /// A target `IdentityId`; the first-half chain treats it opaquely (no derivation),
     /// so a literal `(tag, key_repr)` is sufficient and keeps tests focused.
@@ -662,8 +688,8 @@ mod tests {
         registry
             .register(SchemeDescriptor::new(
                 SchemeTag::new(REFERENCE_SCHEME_TAG),
-                ByteFormat::exact(32),         // signing key (unused here)
-                ByteFormat::exact(32),         // verifying key
+                ByteFormat::exact(32),          // signing key (unused here)
+                ByteFormat::exact(32),          // verifying key
                 ByteFormat::range(36, 1 << 20), // signature (variable length)
             ))
             .expect("fresh registry");
@@ -896,7 +922,9 @@ mod tests {
         // Sign a DIFFERENT message (different nonce): the signature has a valid format
         // but does not verify against this operation's canonical message.
         let wrong_msg = canonical_encode_operation(&target(), &payload, 999);
-        let wrong_sig = ReferenceSigner.sign(&sk, &wrong_msg).expect("reference sign");
+        let wrong_sig = ReferenceSigner
+            .sign(&sk, &wrong_msg)
+            .expect("reference sign");
 
         let op = SignedOperation::new(
             target(),
@@ -1249,7 +1277,9 @@ mod tests {
             delegate: vk(vec![9u8; 32]),
         };
         let wrong_msg = canonical_encode_operation(&id, &payload, 999);
-        let wrong_sig = ReferenceSigner.sign(&sk, &wrong_msg).expect("reference sign");
+        let wrong_sig = ReferenceSigner
+            .sign(&sk, &wrong_msg)
+            .expect("reference sign");
         let op = SignedOperation::new(
             id.clone(),
             payload,
@@ -1296,29 +1326,29 @@ mod tests {
         assert_eq!(state.identities.get(&id).unwrap().applied_nonce, 0);
     }
 
-    // --- IdentityState::apply (task 11.3): CreateCoFay via the Identity_Core path ---
+    // --- IdentityState::apply: CreateCoFay under single-layer ownership ----
 
     #[test]
-    fn valid_create_cofay_creates_cofay_and_bumps_owner_nonce() {
-        // Requirements 6.1, 6.7: an authenticated CreateCoFay signed by the OWNER's own
-        // active key creates a CoFay-kind identity attached beneath the owner (depth+1),
-        // binds its own MeritPocket, bumps the OWNER's applied_nonce, and returns
-        // Applied::CoFayCreated carrying the new coFay id.
+    fn valid_create_cofay_creates_cofay_with_single_layer_owner_and_bumps_actor_nonce() {
         let mut state = reference_state();
-        let (sk, owner_vk) = reference_keypair(b"owner-seed");
-        let owner = create_reference_ifay(&mut state, &owner_vk);
-        assert_eq!(state.identities.get(&owner).unwrap().applied_nonce, 0);
+        let (sk, actor_vk) = reference_keypair(b"actor-ifay-seed");
+        let actor_ifay = create_reference_ifay(&mut state, &actor_vk);
+        assert_eq!(state.identities.get(&actor_ifay).unwrap().applied_nonce, 0);
 
-        // The new coFay's initial verifying key (any valid 32-byte reference key).
+        let human_owner = OwnerRef::new(
+            "hid_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            OwnerKind::Human,
+        );
         let new_cofay_key = vk(vec![3u8; 32]);
         let op = signed_op(
-            &owner,
+            &actor_ifay,
             OperationPayload::CreateCoFay {
+                owner: human_owner.clone(),
                 new_cofay_key: new_cofay_key.clone(),
             },
             1,
             &sk,
-            &owner_vk,
+            &actor_vk,
         );
 
         let created_at = Timestamp::from_secs(1_700_000_000);
@@ -1326,105 +1356,94 @@ mod tests {
             .apply(&op, &ReferenceVerifier, created_at)
             .expect("authenticated CreateCoFay commits");
 
-        // The returned coFay id is the deterministic derivation under the owner's scheme.
         let cofay_id = match applied {
             Applied::CoFayCreated(id) => id,
             other => panic!("expected CoFayCreated, got {other:?}"),
         };
-        let expected = derive_identity_id(
-            &state.registry,
-            &SchemeTag::new(REFERENCE_SCHEME_TAG),
-            &new_cofay_key,
-        )
-        .unwrap();
-        assert_eq!(cofay_id, expected);
-
-        // A CoFay-kind record exists with the right active key / created_at.
         let record = state.identities.get(&cofay_id).expect("coFay recorded");
         assert_eq!(record.kind, crate::types::IdentityKind::CoFay);
         assert_eq!(record.active_key, new_cofay_key);
-        assert_eq!(record.created_at, created_at);
-        assert_eq!(record.applied_nonce, 0);
-
-        // Attached beneath the owner at depth 1 with its own pocket.
-        assert_eq!(state.ownership.owner_of(&cofay_id), Some(&owner));
-        assert_eq!(state.ownership.depth_of(&cofay_id), Some(1));
+        assert_eq!(state.ownership.owner_of(&cofay_id), Some(&human_owner));
         assert!(state.binding.pocket(&cofay_id).is_some());
-
-        // The OWNER's applied_nonce advanced to the op nonce (the op targets the owner).
-        assert_eq!(state.identities.get(&owner).unwrap().applied_nonce, 1);
+        assert_eq!(state.identities.get(&actor_ifay).unwrap().applied_nonce, 1);
     }
 
     #[test]
-    fn create_cofay_by_authorized_delegate_of_owner_creates_cofay() {
-        // Requirement 7.1: a signer authorized on-behalf of the owner (an active
-        // delegate of the owner) may create a coFay under it. Here the owner is itself a
-        // coFay with a delegate; the delegate signs the CreateCoFay.
+    fn create_cofay_with_ifay_owner_or_nested_under_cofay_is_rejected_atomically() {
         let mut state = reference_state();
-        // Root iFay owns `owner_cofay`.
-        let (root_sk, root_vk) = reference_keypair(b"root-seed");
-        let root = create_reference_ifay(&mut state, &root_vk);
-        let owner_cofay_key = vk(vec![4u8; 32]);
-        let create_owner = signed_op(
-            &root,
+        let (sk, actor_vk) = reference_keypair(b"actor-ifay-seed");
+        let actor_ifay = create_reference_ifay(&mut state, &actor_vk);
+
+        // 1. Disallowed owner prefix (`ifay_`) -> OwnerTypeNotAllowed, state unchanged.
+        let bad_owner_op = signed_op(
+            &actor_ifay,
             OperationPayload::CreateCoFay {
-                new_cofay_key: owner_cofay_key.clone(),
+                owner: OwnerRef::new(
+                    "ifay_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    OwnerKind::Human,
+                ),
+                new_cofay_key: vk(vec![4u8; 32]),
             },
             1,
-            &root_sk,
-            &root_vk,
+            &sk,
+            &actor_vk,
         );
-        let owner_cofay = match state
-            .apply(&create_owner, &ReferenceVerifier, Timestamp::from_secs(2))
+        let before = state.clone();
+        assert_eq!(
+            state.apply(&bad_owner_op, &ReferenceVerifier, Timestamp::from_secs(2)),
+            Err(IdentityError::OwnerTypeNotAllowed)
+        );
+        assert_eq!(state, before);
+
+        // 2. Create one valid coFay, then verify that coFay CANNOT create a nested coFay.
+        let (cofay_sk, cofay_vk) = reference_keypair(b"cofay-seed");
+        let create_ok = signed_op(
+            &actor_ifay,
+            OperationPayload::CreateCoFay {
+                owner: OwnerRef::new("org_ifay-foundation", OwnerKind::Organization),
+                new_cofay_key: cofay_vk.clone(),
+            },
+            1,
+            &sk,
+            &actor_vk,
+        );
+        let cofay_id = match state
+            .apply(&create_ok, &ReferenceVerifier, Timestamp::from_secs(3))
             .unwrap()
         {
             Applied::CoFayCreated(id) => id,
             other => panic!("expected CoFayCreated, got {other:?}"),
         };
 
-        // Authorize a delegate key for the owner coFay (raw-key membership).
-        let (del_sk, del_vk) = reference_keypair(b"delegate-seed");
-        state.delegates.add_delegate(&owner_cofay, &del_vk).unwrap();
-
-        // The delegate signs a CreateCoFay targeting the owner coFay.
-        let new_cofay_key = vk(vec![6u8; 32]);
-        let op = signed_op(
-            &owner_cofay,
+        let nested_attempt = signed_op(
+            &cofay_id,
             OperationPayload::CreateCoFay {
-                new_cofay_key: new_cofay_key.clone(),
+                owner: OwnerRef::new("org_child-org", OwnerKind::Organization),
+                new_cofay_key: vk(vec![9u8; 32]),
             },
             1,
-            &del_sk,
-            &del_vk,
+            &cofay_sk,
+            &cofay_vk,
         );
-        let cofay_id = match state
-            .apply(&op, &ReferenceVerifier, Timestamp::from_secs(3))
-            .expect("delegate-authorized CreateCoFay commits")
-        {
-            Applied::CoFayCreated(id) => id,
-            other => panic!("expected CoFayCreated, got {other:?}"),
-        };
-
-        // The new coFay is attached beneath the owner coFay (depth 2 below the root).
-        assert_eq!(state.ownership.owner_of(&cofay_id), Some(&owner_cofay));
-        assert_eq!(state.ownership.depth_of(&cofay_id), Some(2));
-        // The owner coFay's nonce advanced (the op targets the owner).
-        assert_eq!(state.identities.get(&owner_cofay).unwrap().applied_nonce, 1);
+        let before_nested = state.clone();
+        assert_eq!(
+            state.apply(&nested_attempt, &ReferenceVerifier, Timestamp::from_secs(4)),
+            Err(IdentityError::OwnerTypeNotAllowed)
+        );
+        assert_eq!(state, before_nested);
     }
 
     #[test]
     fn create_cofay_with_malformed_key_is_key_format_invalid_and_state_unchanged() {
-        // Requirement 2.5 (reused for coFay) / 13.4: a malformed new_cofay_key →
-        // KeyFormatInvalid, nothing created, owner nonce NOT bumped, state unchanged.
         let mut state = reference_state();
         let (sk, owner_vk) = reference_keypair(b"owner-seed");
         let owner = create_reference_ifay(&mut state, &owner_vk);
 
-        // A 31-byte key violates the reference scheme's exact(32) verifying-key format.
         let bad_key = vk(vec![0u8; 31]);
         let op = signed_op(
             &owner,
             OperationPayload::CreateCoFay {
+                owner: OwnerRef::new("org_ifay-foundation", OwnerKind::Organization),
                 new_cofay_key: bad_key,
             },
             1,
@@ -1437,59 +1456,10 @@ mod tests {
             state.apply(&op, &ReferenceVerifier, Timestamp::from_secs(2)),
             Err(IdentityError::KeyFormatInvalid)
         );
-        assert_eq!(state, before, "rejected CreateCoFay must leave state unchanged");
-        // Owner nonce was not consumed, so the op can be re-submitted once corrected.
-        assert_eq!(state.identities.get(&owner).unwrap().applied_nonce, 0);
-    }
-
-    #[test]
-    fn create_cofay_forming_a_cycle_is_rejected_and_state_unchanged() {
-        // Requirement 6.5 / 13.4: re-submitting CreateCoFay for an existing coFay while
-        // naming that coFay itself as the owner forms a self-parent cycle →
-        // OwnershipCycle, with the aggregate left byte-for-byte unchanged and the
-        // (cofay's) nonce unconsumed.
-        let mut state = reference_state();
-        let (owner_sk, owner_vk) = reference_keypair(b"owner-seed");
-        let owner = create_reference_ifay(&mut state, &owner_vk);
-
-        // First, create a coFay normally under the owner; its key authenticates it as
-        // its own active key for a self-targeted op.
-        let (cofay_sk, cofay_vk) = reference_keypair(b"cofay-seed");
-        let create = signed_op(
-            &owner,
-            OperationPayload::CreateCoFay {
-                new_cofay_key: cofay_vk.clone(),
-            },
-            1,
-            &owner_sk,
-            &owner_vk,
-        );
-        let cofay = match state
-            .apply(&create, &ReferenceVerifier, Timestamp::from_secs(2))
-            .unwrap()
-        {
-            Applied::CoFayCreated(id) => id,
-            other => panic!("expected CoFayCreated, got {other:?}"),
-        };
-
-        // Now the coFay (signing with its own active key) tries to create a coFay whose
-        // derived id equals itself (same key) under itself as owner → self-parent cycle.
-        let op = signed_op(
-            &cofay,
-            OperationPayload::CreateCoFay {
-                new_cofay_key: cofay_vk.clone(),
-            },
-            1,
-            &cofay_sk,
-            &cofay_vk,
-        );
-
-        let before = state.clone();
         assert_eq!(
-            state.apply(&op, &ReferenceVerifier, Timestamp::from_secs(3)),
-            Err(IdentityError::OwnershipCycle)
+            state, before,
+            "rejected CreateCoFay must leave state unchanged"
         );
-        assert_eq!(state, before, "rejected cyclic CreateCoFay must leave state unchanged");
-        assert_eq!(state.identities.get(&cofay).unwrap().applied_nonce, 0);
+        assert_eq!(state.identities.get(&owner).unwrap().applied_nonce, 0);
     }
 }

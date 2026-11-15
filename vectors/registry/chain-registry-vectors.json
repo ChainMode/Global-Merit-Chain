@@ -1,0 +1,47 @@
+{
+  "suite": "gmchain-chain-registry-v1",
+  "description": "Conformance vectors for unbounded Nested Merit Chain derivation (depth >= 17), 1:1 OrganizationID binding, and natural-person Steward enforcement.",
+  "vectors": [
+    {
+      "id": "REG-01-depth-17-derivation-accepted",
+      "scenario": "unbounded_depth",
+      "targetDepth": 17,
+      "stewardId": "hid_stewardaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedOutcome": "allow"
+    },
+    {
+      "id": "REG-02-organization-duplicate-binding-rejected",
+      "scenario": "duplicate_org_binding",
+      "organizationId": "org_research-guild",
+      "firstChainId": "chain-guild-1",
+      "secondChainId": "chain-guild-2",
+      "stewardId": "hid_stewardaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedOutcome": "deny",
+      "expectedError": "OrganizationBindingConflict"
+    },
+    {
+      "id": "REG-03-ifay-steward-rejected",
+      "scenario": "steward_validation",
+      "chainId": "chain-bad-ifay-steward",
+      "stewardId": "ifay_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedOutcome": "deny",
+      "expectedError": "StewardTypeNotAllowed"
+    },
+    {
+      "id": "REG-04-cofay-steward-rejected",
+      "scenario": "steward_validation",
+      "chainId": "chain-bad-cofay-steward",
+      "stewardId": "cofay_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expectedOutcome": "deny",
+      "expectedError": "StewardTypeNotAllowed"
+    },
+    {
+      "id": "REG-05-human-steward-with-ifay-manager-accepted",
+      "scenario": "manager_delegation_preserves_steward",
+      "chainId": "chain-delegated-ops",
+      "stewardId": "hid_stewardbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "managerIfayId": "ifay_cccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "expectedOutcome": "allow"
+    }
+  ]
+}

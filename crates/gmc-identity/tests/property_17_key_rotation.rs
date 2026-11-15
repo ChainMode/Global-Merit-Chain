@@ -74,8 +74,6 @@ proptest! {
         // Snapshot the invariants tied to the (stable) IdentityId (Requirement 11.2).
         let pocket_key_before = binding.pocket_key(&id);
         let owner_before = ownership.owner_of(&id).cloned();
-        let path_before = ownership.path_of(&id).cloned();
-        let depth_before = ownership.depth_of(&id);
 
         // Build a sequence of DISTINCT new verifying keys, each distinct from the initial
         // key, preserving first-occurrence order. Each rotation carries a fresh new key.
@@ -125,8 +123,6 @@ proptest! {
             prop_assert_eq!(&identity.id, &id);
             prop_assert_eq!(binding.pocket_key(&id), pocket_key_before.clone());
             prop_assert_eq!(ownership.owner_of(&id).cloned(), owner_before.clone());
-            prop_assert_eq!(ownership.path_of(&id).cloned(), path_before.clone());
-            prop_assert_eq!(ownership.depth_of(&id), depth_before);
 
             prev_active = new_key.clone();
         }

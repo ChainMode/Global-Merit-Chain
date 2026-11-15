@@ -66,6 +66,7 @@ impl Decimal {
     ///
     /// Fractional digits beyond [`Decimal::SCALE_DIGITS`] are truncated. Returns
     /// `None` when the input is not a well-formed decimal number.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Decimal> {
         let s = s.trim();
         if s.is_empty() {
@@ -176,7 +177,8 @@ impl fmt::Display for Decimal {
         if frac_part == 0 {
             write!(f, "{sign}{int_part}")
         } else {
-            let mut frac_str = format!("{:0width$}", frac_part, width = Self::SCALE_DIGITS as usize);
+            let mut frac_str =
+                format!("{:0width$}", frac_part, width = Self::SCALE_DIGITS as usize);
             while frac_str.ends_with('0') {
                 frac_str.pop();
             }
@@ -447,7 +449,10 @@ mod tests {
     #[test]
     fn decimal_from_int_and_raw_roundtrip() {
         assert_eq!(Decimal::from_int(5).raw(), 5 * Decimal::SCALE);
-        assert_eq!(Decimal::from_raw(2_718_281), Decimal::from_str("2.718281").unwrap());
+        assert_eq!(
+            Decimal::from_raw(2_718_281),
+            Decimal::from_str("2.718281").unwrap()
+        );
     }
 
     #[test]
@@ -503,8 +508,12 @@ mod tests {
     fn ratio_accepts_boundaries() {
         assert!(Ratio::new(Decimal::ZERO).is_some());
         assert!(Ratio::new(Decimal::ONE).is_some());
-        assert_eq!(Ratio::new(Decimal::from_str("0.66").unwrap()).unwrap().value(),
-                   Decimal::from_str("0.66").unwrap());
+        assert_eq!(
+            Ratio::new(Decimal::from_str("0.66").unwrap())
+                .unwrap()
+                .value(),
+            Decimal::from_str("0.66").unwrap()
+        );
     }
 
     #[test]

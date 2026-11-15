@@ -118,7 +118,10 @@ impl fmt::Debug for SigningKey {
     /// Redacted: never prints the secret bytes (Requirement 13.5), only the length.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SigningKey")
-            .field("bytes", &format_args!("<redacted; {} bytes>", self.bytes.len()))
+            .field(
+                "bytes",
+                &format_args!("<redacted; {} bytes>", self.bytes.len()),
+            )
             .finish()
     }
 }

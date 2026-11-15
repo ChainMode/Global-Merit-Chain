@@ -480,7 +480,11 @@ mod tests {
         // e^(-1) ≈ 0.367879
         let expected = Decimal::from_str("0.367879").unwrap();
         assert!(
-            approx_eq(exp_neg(Decimal::ONE), expected, Decimal::from_str("0.001").unwrap()),
+            approx_eq(
+                exp_neg(Decimal::ONE),
+                expected,
+                Decimal::from_str("0.001").unwrap()
+            ),
             "exp_neg(1) = {}",
             exp_neg(Decimal::ONE)
         );
@@ -557,7 +561,10 @@ mod tests {
         for t in [0u64, 10, 100, 1_000, 10_000, 100_000, 1_000_000] {
             let value = batch.merit_at(ts(t));
             assert!(value >= b, "value {value} dropped below floor {b} at t={t}");
-            assert!(value <= Decimal::from_int(100), "value {value} exceeded V at t={t}");
+            assert!(
+                value <= Decimal::from_int(100),
+                "value {value} exceeded V at t={t}"
+            );
         }
     }
 
@@ -567,7 +574,11 @@ mod tests {
         // After many influence durations the amplitude term has fully decayed.
         let far = batch.merit_at(ts(10_000_000));
         assert!(
-            approx_eq(far, Decimal::from_int(10), Decimal::from_str("0.001").unwrap()),
+            approx_eq(
+                far,
+                Decimal::from_int(10),
+                Decimal::from_str("0.001").unwrap()
+            ),
             "far-future value {far} did not converge to floor B=10"
         );
     }
@@ -626,7 +637,10 @@ mod tests {
         let lambda = MeritBatch::lambda_from_duration(Decimal::from_int(100)).unwrap();
         assert_eq!(lambda, Decimal::from_str("0.01").unwrap());
         assert_eq!(MeritBatch::lambda_from_duration(Decimal::ZERO), None);
-        assert_eq!(MeritBatch::lambda_from_duration(Decimal::from_int(-5)), None);
+        assert_eq!(
+            MeritBatch::lambda_from_duration(Decimal::from_int(-5)),
+            None
+        );
     }
 
     #[test]
@@ -693,7 +707,7 @@ mod tests {
         pocket.min_merit = Decimal::from_int(4); // B = 4
         let x = Decimal::from_int(6);
         let new_floor = pocket.update_min_merit(x, Decimal::from_int(4)).unwrap(); // M == B == 4
-        // B' = 6 + 4 = 10
+                                                                                   // B' = 6 + 4 = 10
         assert_eq!(new_floor, Decimal::from_int(10));
         assert_eq!(pocket.min_merit(), Decimal::from_int(10));
     }
@@ -720,9 +734,7 @@ mod tests {
                     let b = Decimal::from_int(b_raw);
                     pocket.min_merit = b;
                     let m = Decimal::from_int(b_raw + m_extra); // M >= B
-                    let new_floor = pocket
-                        .update_min_merit(Decimal::from_int(x), m)
-                        .unwrap();
+                    let new_floor = pocket.update_min_merit(Decimal::from_int(x), m).unwrap();
                     assert!(
                         new_floor >= b,
                         "B'={new_floor} < B={b} for M={m}, x={x} (must be non-decreasing)"
@@ -741,7 +753,10 @@ mod tests {
         let mut prev = pocket.min_merit();
         for x in [1i64, 5, 2, 40, 7, 100] {
             // Use M = current floor + a positive slack so M >= B holds.
-            let m = pocket.min_merit().checked_add(Decimal::from_int(3)).unwrap();
+            let m = pocket
+                .min_merit()
+                .checked_add(Decimal::from_int(3))
+                .unwrap();
             let new_floor = pocket.update_min_merit(Decimal::from_int(x), m).unwrap();
             assert!(
                 new_floor >= prev,
@@ -786,7 +801,7 @@ mod tests {
         pocket.add_batch(MeritBatch::new(
             "reg-grant",
             Decimal::from_int(100), // V
-            E,                       // B = initial floor
+            E,                      // B = initial floor
             Decimal::from_str("0.001").unwrap(),
             Decimal::from_int(1_000),
             ts(0),
@@ -837,7 +852,11 @@ mod tests {
         pocket.add_batch(sample_batch("40", "4", "0.01", 0)); // Σ B = 12
         let far = pocket.cur_merit(ts(50_000_000));
         assert!(
-            approx_eq(far, Decimal::from_int(12), Decimal::from_str("0.001").unwrap()),
+            approx_eq(
+                far,
+                Decimal::from_int(12),
+                Decimal::from_str("0.001").unwrap()
+            ),
             "far-future curMerit {far} did not converge to Σ B_i = 12"
         );
         assert!(pocket.invariant_holds(ts(50_000_000)));

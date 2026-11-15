@@ -70,7 +70,10 @@ fn l1_stores_all_required_record_types_and_state_root() {
     assert_eq!(chain.created_at, ts(1_000));
 
     // 身份注册记录 (Requirement 13.1).
-    l1.store_identity_registration(IdentityRegistrationRecord::new(FayID::new("fay-1"), ts(2_000)));
+    l1.store_identity_registration(IdentityRegistrationRecord::new(
+        FayID::new("fay-1"),
+        ts(2_000),
+    ));
     let identity = l1
         .identity_registration(&FayID::new("fay-1"))
         .expect("L1 stores the identity registration record");
@@ -101,7 +104,9 @@ fn l1_stores_all_required_record_types_and_state_root() {
 
     // Every stored record kind is present at once; none clobbered another.
     assert_eq!(l1.chain_registration_count(), 1);
-    assert!(l1.chain_registration(&ChainId::new("academic-chain")).is_some());
+    assert!(l1
+        .chain_registration(&ChainId::new("academic-chain"))
+        .is_some());
     assert!(l1.identity_registration(&FayID::new("fay-1")).is_some());
     assert!(l1.vote_result("vote-42").is_some());
     assert_eq!(l1.penalties().len(), 1);
@@ -273,7 +278,10 @@ fn per_module_anchors_each_advance_to_distinct_confirmed_roots() {
     // settled change moves the confirmed state forward to a fresh value).
     for (i, a) in roots.iter().enumerate() {
         for b in roots.iter().skip(i + 1) {
-            assert_ne!(a, b, "each settled change must advance to a distinct confirmed root");
+            assert_ne!(
+                a, b,
+                "each settled change must advance to a distinct confirmed root"
+            );
         }
     }
 
@@ -317,31 +325,60 @@ fn req_13_4_every_anchoring_transaction_is_fee_free() {
 
     // Drive one of every anchoring transaction kind; assert fee-free after each.
     l1.anchor_chain_creation(chain_record("c1", "gmc-base", "domain-1"));
-    assert!(l1.is_fee_free(), "chain-creation transaction must be fee-free");
+    assert!(
+        l1.is_fee_free(),
+        "chain-creation transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
-    l1.store_identity_registration(IdentityRegistrationRecord::new(FayID::new("fay-1"), ts(2_000)));
-    assert!(l1.is_fee_free(), "identity-registration transaction must be fee-free");
+    l1.store_identity_registration(IdentityRegistrationRecord::new(
+        FayID::new("fay-1"),
+        ts(2_000),
+    ));
+    assert!(
+        l1.is_fee_free(),
+        "identity-registration transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
     l1.anchor_mechanism_change(ChainId::new("c1"));
-    assert!(l1.is_fee_free(), "mechanism-change transaction must be fee-free");
+    assert!(
+        l1.is_fee_free(),
+        "mechanism-change transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
     l1.anchor_inflation_index_change(ChainId::new("c1"));
-    assert!(l1.is_fee_free(), "inflation-index-change transaction must be fee-free");
+    assert!(
+        l1.is_fee_free(),
+        "inflation-index-change transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
     l1.anchor_derivation_state_root(StateRoot::from_bytes([1u8; 32]));
-    assert!(l1.is_fee_free(), "derivation-root transaction must be fee-free");
+    assert!(
+        l1.is_fee_free(),
+        "derivation-root transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
     l1.update_state_root(StateRoot::from_bytes([2u8; 32]));
-    assert!(l1.is_fee_free(), "state-root-update transaction must be fee-free");
+    assert!(
+        l1.is_fee_free(),
+        "state-root-update transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
-    l1.anchor_retroactive_outcome(VoteResultRecord::new("retro-1", "retro:c1", true, ts(6_000)));
-    assert!(l1.is_fee_free(), "retroactive-outcome transaction must be fee-free");
+    l1.anchor_retroactive_outcome(VoteResultRecord::new(
+        "retro-1",
+        "retro:c1",
+        true,
+        ts(6_000),
+    ));
+    assert!(
+        l1.is_fee_free(),
+        "retroactive-outcome transaction must be fee-free"
+    );
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
     l1.store_vote_result(VoteResultRecord::new("vote-1", "subject", true, ts(7_000)));
@@ -353,7 +390,10 @@ fn req_13_4_every_anchoring_transaction_is_fee_free() {
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 
     // Many transactions settled, yet the cumulative fee charged is still zero.
-    assert!(l1.version() >= 9, "all anchoring transactions advanced the settled state");
+    assert!(
+        l1.version() >= 9,
+        "all anchoring transactions advanced the settled state"
+    );
     assert!(l1.is_fee_free());
     assert_eq!(l1.transaction_fee(), Decimal::ZERO);
 }

@@ -27,7 +27,9 @@ use gmc_identity::types::{SchemeTag, VerifyingKey};
 /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed` (mirrors the
 /// in-crate test helpers so derivation succeeds under the default registry).
 fn vk(seed: u8) -> VerifyingKey {
-    let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+    let bytes: Vec<u8> = (0..32u8)
+        .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+        .collect();
     VerifyingKey::new(bytes)
 }
 
@@ -42,7 +44,9 @@ fn freshly_bound_pocket_has_min_merit_e_and_no_balance_math() {
     let mut binding = PocketBinding::new();
     let identity = derive_identity_id(&SchemeRegistry::default(), &SchemeTag::ed25519(), &vk(0))
         .expect("valid ed25519 vk derives an IdentityId");
-    binding.bind(&identity).expect("binding has no rejection path");
+    binding
+        .bind(&identity)
+        .expect("binding has no rejection path");
 
     // Fetch the freshly bound MeritPocket via the binding's real read accessor.
     let pocket = binding.pocket(&identity).expect("pocket was just bound");

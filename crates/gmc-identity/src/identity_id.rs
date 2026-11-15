@@ -300,7 +300,9 @@ mod tests {
 
     /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed`.
     fn vk(seed: u8) -> VerifyingKey {
-        let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+        let bytes: Vec<u8> = (0..32u8)
+            .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+            .collect();
         VerifyingKey::new(bytes)
     }
 
@@ -403,7 +405,11 @@ mod tests {
         // are also malformed (fixed order: resolve → validate).
         let registry = SchemeRegistry::default();
         assert_eq!(
-            derive_identity_id(&registry, &SchemeTag::new("nope"), &VerifyingKey::new(vec![0u8; 7])),
+            derive_identity_id(
+                &registry,
+                &SchemeTag::new("nope"),
+                &VerifyingKey::new(vec![0u8; 7])
+            ),
             Err(IdentityError::SchemeUnsupported)
         );
     }
@@ -436,7 +442,9 @@ mod tests {
     #[test]
     fn base32_round_trips_for_many_lengths() {
         for len in 0usize..40 {
-            let data: Vec<u8> = (0..len as u16).map(|i| (i.wrapping_mul(31) % 256) as u8).collect();
+            let data: Vec<u8> = (0..len as u16)
+                .map(|i| (i.wrapping_mul(31) % 256) as u8)
+                .collect();
             let encoded = base32_encode(&data);
             assert_eq!(base32_decode(&encoded), Some(data.clone()), "len = {len}");
             // Canonical: re-encoding the decoded bytes yields the identical string.
@@ -576,7 +584,10 @@ mod tests {
         );
         // Even ed25519 is "unknown form" against an empty registry.
         assert_eq!(
-            parse_identity_id(&SchemeRegistry::empty(), &format!("fay1.ed25519.{key_repr}")),
+            parse_identity_id(
+                &SchemeRegistry::empty(),
+                &format!("fay1.ed25519.{key_repr}")
+            ),
             Err(IdentityError::IdentityIdFormatInvalid)
         );
     }
@@ -587,10 +598,10 @@ mod tests {
         let registry = SchemeRegistry::default();
         let key_repr = id(0).key_repr().to_owned();
         for bad in [
-            String::from("fay1"),                       // prefix only
-            String::from("fay1.ed25519"),               // missing key_repr segment
-            format!("ed25519.{key_repr}"),              // missing prefix segment
-            String::new(),                              // empty string
+            String::from("fay1"),          // prefix only
+            String::from("fay1.ed25519"),  // missing key_repr segment
+            format!("ed25519.{key_repr}"), // missing prefix segment
+            String::new(),                 // empty string
         ] {
             assert_eq!(
                 parse_identity_id(&registry, &bad),

@@ -46,11 +46,14 @@
 
 use std::collections::BTreeMap;
 
+use crate::antifraud::{select_voters, Stakeholder};
+use crate::carbon::CarbonCreditVoucher;
 use crate::chain_creation::{ChainCreationService, CreationRequest};
 use crate::error::{GmcError, GmcResult};
-use crate::carbon::CarbonCreditVoucher;
 use crate::governance::{GovernanceError, GovernanceModule, Voter};
-use crate::l1_settlement::{self, ChainRegistrationRecord, L1Settlement, StateRoot, VoteResultRecord};
+use crate::l1_settlement::{
+    self, ChainRegistrationRecord, L1Settlement, StateRoot, VoteResultRecord,
+};
 use crate::l2_rollup::{self, Batch, BatchRoot, L1ProofSink, L2Rollup};
 use crate::merit::MeritPocket;
 use crate::minting::{MintReceipt, MintRequest, MintingService};
@@ -61,11 +64,10 @@ use crate::recording::{
 use crate::registration::{GrantContext, RegistrationApplication, RegistrationService};
 use crate::registry::ChainRegistry;
 use crate::retroactive::{
-    retro_threshold, DeclarationId, ReviewStatus, RetroactiveApplication, RetroactiveReviewModule,
+    retro_threshold, DeclarationId, RetroactiveApplication, RetroactiveReviewModule, ReviewStatus,
 };
 use crate::scoring::{BaseScores, InflationIndexConfig, ScoringEngine};
 use crate::types::{ChainId, Decimal, DimensionWeights, FayID, Ratio, Timestamp};
-use crate::antifraud::{select_voters, Stakeholder};
 
 // ===========================================================================
 // Trait bridges — the cross-module seams, joined up here (and nowhere else).
@@ -360,8 +362,7 @@ pub fn run_register_record_grant(
     }
 
     // 5. Score the contribution (Req 7.5/7.6/8.3).
-    let amount =
-        scoring.compute_mint_amount(&input.weights, &input.base_scores, &input.indices)?;
+    let amount = scoring.compute_mint_amount(&input.weights, &input.base_scores, &input.indices)?;
 
     // 6. Mint into the pocket, metering the chain's quota (Req 8.x / 4.x).
     let receipt = minting.mint(
@@ -452,6 +453,7 @@ impl RetroVoter {
 /// Returns the resolved [`ReviewStatus`] and the vote handle. A below-threshold
 /// rejection is **not** a flow error — it is returned as
 /// `Ok((ReviewStatus::Rejected, _))`.
+#[allow(clippy::too_many_arguments)]
 fn conduct_retro_vote(
     retro: &mut RetroactiveReviewModule,
     governance: &mut GovernanceModule,
@@ -463,8 +465,7 @@ fn conduct_retro_vote(
     subject: &str,
 ) -> GmcResult<(ReviewStatus, String)> {
     // 1. Voter selection: exclude high-intimacy, sample ≥ 7 (Req 11.1/11.2/11.3).
-    let stakeholders: Vec<Stakeholder> =
-        voters.iter().map(|v| v.stakeholder.clone()).collect();
+    let stakeholders: Vec<Stakeholder> = voters.iter().map(|v| v.stakeholder.clone()).collect();
     let selected = select_voters(&stakeholders, sample_size, seed)?;
 
     // Lookup from voter id to its (curMerit, ballot) for the selected subset.
@@ -611,11 +612,8 @@ pub fn run_retroactive_review(
     match status {
         ReviewStatus::Approved => {
             // 3a. Approved: score + mint per the three-dimension model (Req 10.6).
-            let amount = scoring.compute_mint_amount(
-                &input.weights,
-                &input.base_scores,
-                &input.indices,
-            )?;
+            let amount =
+                scoring.compute_mint_amount(&input.weights, &input.base_scores, &input.indices)?;
             let receipt = minting.mint(
                 pocket,
                 quota_config,
@@ -757,11 +755,8 @@ pub fn run_carbon_conversion(
     match status {
         ReviewStatus::Approved => {
             // 3a. Score the conversion (Req 12.2/12.3).
-            let amount = scoring.compute_mint_amount(
-                &input.weights,
-                &input.base_scores,
-                &input.indices,
-            )?;
+            let amount =
+                scoring.compute_mint_amount(&input.weights, &input.base_scores, &input.indices)?;
             // Charge the env chain's current-period quota and mark the voucher
             // converted, both exactly once (Req 12.5/12.7); a second conversion of the
             // same voucher would be rejected with DoubleConversion (Req 12.6).

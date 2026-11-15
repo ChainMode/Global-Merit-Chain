@@ -221,8 +221,12 @@ mod tests {
     #[test]
     fn vote_channel_creates_with_vote_initiated_when_passed() {
         let mut registry = registry_with_root();
-        let id = ChainCreationService::create_by_vote(&mut registry, request("academic", "academic"), true)
-            .expect("a passing vote derives the chain");
+        let id = ChainCreationService::create_by_vote(
+            &mut registry,
+            request("academic", "academic"),
+            true,
+        )
+        .expect("a passing vote derives the chain");
         assert_eq!(id, ChainId::new("academic"));
         let chain = registry.get(&id).expect("chain was created");
         assert_eq!(chain.origin_type(), Some(OriginType::VoteInitiated));
@@ -232,8 +236,12 @@ mod tests {
     fn vote_channel_rejects_and_creates_nothing_when_not_passed() {
         let mut registry = registry_with_root();
         let before = registry.len();
-        let err = ChainCreationService::create_by_vote(&mut registry, request("academic", "academic"), false)
-            .expect_err("a failed vote must be rejected");
+        let err = ChainCreationService::create_by_vote(
+            &mut registry,
+            request("academic", "academic"),
+            false,
+        )
+        .expect_err("a failed vote must be rejected");
         assert_eq!(err, GmcError::GovernanceThresholdNotMet);
         // No chain created; registry unchanged.
         assert_eq!(registry.len(), before);
@@ -245,9 +253,12 @@ mod tests {
     #[test]
     fn steward_channel_creates_with_steward_initiated_when_qualified() {
         let mut registry = registry_with_root();
-        let id =
-            ChainCreationService::create_by_steward(&mut registry, request("charity", "charity"), true)
-                .expect("a qualified steward derives the chain");
+        let id = ChainCreationService::create_by_steward(
+            &mut registry,
+            request("charity", "charity"),
+            true,
+        )
+        .expect("a qualified steward derives the chain");
         let chain = registry.get(&id).expect("chain was created");
         assert_eq!(chain.origin_type(), Some(OriginType::StewardInitiated));
     }
@@ -256,9 +267,12 @@ mod tests {
     fn steward_channel_rejects_unqualified_and_creates_nothing() {
         let mut registry = registry_with_root();
         let before = registry.len();
-        let err =
-            ChainCreationService::create_by_steward(&mut registry, request("charity", "charity"), false)
-                .expect_err("an unqualified steward must be rejected");
+        let err = ChainCreationService::create_by_steward(
+            &mut registry,
+            request("charity", "charity"),
+            false,
+        )
+        .expect_err("an unqualified steward must be rejected");
         assert_eq!(err, GmcError::StewardNotQualified);
         assert_eq!(registry.len(), before);
         assert!(!registry.contains(&ChainId::new("charity")));
@@ -352,7 +366,8 @@ mod tests {
         let mut registry = registry_with_root();
         ChainCreationService::create_by_vote(&mut registry, request("a", "a"), true).unwrap();
         ChainCreationService::create_by_steward(&mut registry, request("b", "b"), true).unwrap();
-        ChainCreationService::create_by_institution(&mut registry, request("c", "c"), true).unwrap();
+        ChainCreationService::create_by_institution(&mut registry, request("c", "c"), true)
+            .unwrap();
 
         assert_eq!(
             registry.get(&ChainId::new("a")).unwrap().origin_type(),

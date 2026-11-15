@@ -30,7 +30,10 @@ const SCALE: i128 = 1_000_000;
 /// matters for Requirement 3.3: the empty set (rejected), a single mode, and the
 /// two-mode combination.
 fn acquisition_mode_set() -> impl Strategy<Value = Vec<AcquisitionMode>> {
-    subsequence(AcquisitionMode::ALL.to_vec(), 0..=AcquisitionMode::ALL.len())
+    subsequence(
+        AcquisitionMode::ALL.to_vec(),
+        0..=AcquisitionMode::ALL.len(),
+    )
 }
 
 /// A consensus threshold drawn from `-0.5 ..= 1.5`, straddling both boundaries of the

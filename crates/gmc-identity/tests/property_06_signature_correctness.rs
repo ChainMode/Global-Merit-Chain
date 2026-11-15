@@ -21,7 +21,9 @@ mod common;
 // for consistency even though it is unused here.
 #[allow(unused_imports)]
 use common::generators;
-use gmc_identity::signer::{reference_keypair, ReferenceSigner, ReferenceVerifier, Signer, Verifier};
+use gmc_identity::signer::{
+    reference_keypair, ReferenceSigner, ReferenceVerifier, Signer, Verifier,
+};
 use proptest::prelude::*;
 
 proptest! {

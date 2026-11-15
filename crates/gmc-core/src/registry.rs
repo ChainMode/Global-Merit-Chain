@@ -35,16 +35,41 @@
 //! - **Requirement 2.9** (uniqueness index foundation): the `(parentId, domain)`
 //!   index in [`ChainRegistry`]; full ordered-validation `derive` is task 2.2.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::{GmcError, GmcResult};
 use crate::types::{ChainId, FayID, Timestamp};
 
-/// Maximum depth (with `GMC_Base` as depth 0) the derivation tree may reach.
+/// Checks whether a candidate Steward [`FayID`] represents a natural-person Human ID.
 ///
-/// Declared here alongside the data model; the depth-bound *enforcement* during
-/// derivation is task 2.2 (mapping a violation to [`GmcError::DepthExceeded`]).
-pub const MAX_DEPTH: u32 = 16;
+/// Per FayID ADR 0001 / `realign-cofay-ownership-to-fayid`, a Steward holds personal
+/// governance accountability and MUST be a natural person (`hid_*` or legacy test
+/// human label), NEVER an `iFay`, `coFay`, `Organization`, `opaqueRef`, subkey, or
+/// internal `fay1.` machine identity.
+pub fn is_valid_human_steward_id(fay_id: &FayID) -> bool {
+    let s = fay_id.as_str().trim();
+    if s.is_empty() {
+        return false;
+    }
+    const FORBIDDEN_PREFIXES: &[&str] = &[
+        "ifay_", "cofay_", "org_", "gmcref_", "dyn_", "vrf_", "grt_", "fay1.",
+    ];
+    !FORBIDDEN_PREFIXES
+        .iter()
+        .any(|prefix| s.starts_with(prefix))
+}
+
+/// Checks whether a candidate Organization ID string is well-formed for 1:1 subchain
+/// binding (`org_<lowercase-slug-or-base32>`).
+pub fn is_valid_organization_id(org_id: &str) -> bool {
+    let Some(rest) = org_id.strip_prefix("org_") else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
 
 /// How a [`NestedMeritChain`] came into existence (design `originType`).
 ///
@@ -203,6 +228,9 @@ impl NestedMeritChain {
         if stewards.is_empty() {
             return Err(GmcError::MissingField);
         }
+        if !stewards.iter().all(is_valid_human_steward_id) {
+            return Err(GmcError::StewardTypeNotAllowed);
+        }
         Ok(NestedMeritChain {
             id,
             parent_id: Some(parent_id),
@@ -331,6 +359,8 @@ pub struct DeriveRequest {
     pub origin_type: OriginType,
     /// On-chain creation time (_Requirement 1.4_).
     pub created_at: Timestamp,
+    /// Optional Organization ID (`org_...`) bound 1:1 to this derived subchain.
+    pub organization_id: Option<String>,
 }
 
 impl DeriveRequest {
@@ -350,7 +380,14 @@ impl DeriveRequest {
             stewards,
             origin_type,
             created_at,
+            organization_id: None,
         }
+    }
+
+    /// Binds a canonical `OrganizationID` (`org_...`) 1:1 to the derived subchain.
+    pub fn with_organization_id(mut self, organization_id: impl Into<String>) -> Self {
+        self.organization_id = Some(organization_id.into());
+        self
     }
 }
 
@@ -377,6 +414,15 @@ pub struct ChainRegistry {
     domain_index: BTreeMap<(Option<ChainId>, String), ChainId>,
     /// The `GMC_Base` root id (depth 0).
     root_id: ChainId,
+    /// Optional implementation-imposed storage/performance depth cap. Protocol default
+    /// is `None` (no fixed depth cap, per `realign-cofay-ownership-to-fayid`).
+    max_depth_limit: Option<u32>,
+    /// `OrganizationID -> ChainId` 1:1 forward index.
+    org_to_chain: BTreeMap<String, ChainId>,
+    /// `ChainId -> OrganizationID` 1:1 reverse index.
+    chain_to_org: BTreeMap<ChainId, String>,
+    /// Per-chain delegated operational manager `iFay`s (orthogonal to human Stewards).
+    chain_managers: BTreeMap<ChainId, BTreeSet<FayID>>,
 }
 
 impl ChainRegistry {
@@ -398,7 +444,59 @@ impl ChainRegistry {
             chains,
             domain_index,
             root_id,
+            max_depth_limit: None,
+            org_to_chain: BTreeMap::new(),
+            chain_to_org: BTreeMap::new(),
+            chain_managers: BTreeMap::new(),
         })
+    }
+
+    /// Configures an optional implementation-side maximum derivation depth.
+    ///
+    /// By protocol rule (`realign-cofay-ownership-to-fayid`), `ChainRegistry` imposes
+    /// **no** fixed depth ceiling by default (`None`). If a specific runtime sets an
+    /// explicit bound here, exceeding it rejects with [`GmcError::DepthExceeded`] rather
+    /// than silently truncating.
+    pub fn with_optional_max_depth(mut self, max_depth: u32) -> Self {
+        self.max_depth_limit = Some(max_depth);
+        self
+    }
+
+    /// Returns the subchain bound 1:1 to `organization_id`, if any.
+    pub fn chain_for_organization(&self, organization_id: &str) -> Option<&ChainId> {
+        self.org_to_chain.get(organization_id)
+    }
+
+    /// Returns the `OrganizationID` bound 1:1 to `chain_id`, if any.
+    pub fn organization_for_chain(&self, chain_id: &ChainId) -> Option<&str> {
+        self.chain_to_org.get(chain_id).map(String::as_str)
+    }
+
+    /// Grants operational management authority on `chain_id` to an `iFay` manager
+    /// without altering the chain's natural-person Steward list.
+    pub fn grant_chain_manager(
+        &mut self,
+        chain_id: &ChainId,
+        manager_ifay: FayID,
+    ) -> GmcResult<()> {
+        if !self.contains(chain_id) {
+            return Err(GmcError::ParentNotFound);
+        }
+        if !manager_ifay.as_str().starts_with("ifay_") {
+            return Err(GmcError::OperationNotAllowed);
+        }
+        self.chain_managers
+            .entry(chain_id.clone())
+            .or_default()
+            .insert(manager_ifay);
+        Ok(())
+    }
+
+    /// Checks whether `manager` holds operational management authority on `chain_id`.
+    pub fn is_chain_manager(&self, chain_id: &ChainId, manager: &FayID) -> bool {
+        self.chain_managers
+            .get(chain_id)
+            .is_some_and(|set| set.contains(manager))
     }
 
     /// The `GMC_Base` root id (depth 0).
@@ -436,11 +534,7 @@ impl ChainRegistry {
     /// Looks up a chain by its `(parentId, domain)` key, returning its id if present.
     ///
     /// Pass `parent_id = None` to look up against the root slot.
-    pub fn lookup_by_domain(
-        &self,
-        parent_id: Option<&ChainId>,
-        domain: &str,
-    ) -> Option<&ChainId> {
+    pub fn lookup_by_domain(&self, parent_id: Option<&ChainId>, domain: &str) -> Option<&ChainId> {
         self.domain_index
             .get(&(parent_id.cloned(), domain.to_owned()))
     }
@@ -524,14 +618,28 @@ impl ChainRegistry {
             return Err(GmcError::CycleConflict);
         }
 
-        // 4. Depth bound (Requirement 1.7).
-        if new_depth > MAX_DEPTH {
-            return Err(GmcError::DepthExceeded);
+        // 4. Optional implementation-side depth bound (protocol imposes no fixed cap).
+        if let Some(limit) = self.max_depth_limit {
+            if new_depth > limit {
+                return Err(GmcError::DepthExceeded);
+            }
         }
 
-        // 5. (parent, domain) uniqueness (Requirement 2.9).
-        if self.contains_domain(Some(&req.parent_id), &req.domain) {
+        // 5. (parent, domain) uniqueness and chain-id uniqueness (Requirement 2.9).
+        if self.contains(&req.proposed_id)
+            || self.contains_domain(Some(&req.parent_id), &req.domain)
+        {
             return Err(GmcError::DomainConflict);
+        }
+
+        // 6. Optional OrganizationID <-> subchain 1:1 binding validation (atomic pre-check).
+        if let Some(ref org_id) = req.organization_id {
+            if !is_valid_organization_id(org_id)
+                || self.org_to_chain.contains_key(org_id)
+                || self.chain_to_org.contains_key(&req.proposed_id)
+            {
+                return Err(GmcError::OrganizationBindingConflict);
+            }
         }
 
         // All checks passed: build and atomically insert the new chain (Requirement 1.2).
@@ -546,6 +654,11 @@ impl ChainRegistry {
             req.created_at,
         )?;
         self.insert(chain)?;
+        if let Some(org_id) = req.organization_id {
+            self.org_to_chain
+                .insert(org_id.clone(), req.proposed_id.clone());
+            self.chain_to_org.insert(req.proposed_id.clone(), org_id);
+        }
         Ok(req.proposed_id)
     }
 
@@ -662,11 +775,7 @@ mod tests {
     }
 
     /// Convenience: build a depth-1 child of the given parent with one steward.
-    fn child_of(
-        parent: &NestedMeritChain,
-        id: &str,
-        domain: &str,
-    ) -> NestedMeritChain {
+    fn child_of(parent: &NestedMeritChain, id: &str, domain: &str) -> NestedMeritChain {
         let mut path = parent.path().to_vec();
         path.push(ChainId::new(id));
         NestedMeritChain::new(
@@ -713,7 +822,10 @@ mod tests {
             "academic",
             "academia",
         );
-        assert_eq!(ChainRegistry::with_root(non_root).unwrap_err(), GmcError::MissingField);
+        assert_eq!(
+            ChainRegistry::with_root(non_root).unwrap_err(),
+            GmcError::MissingField
+        );
     }
 
     // --- Chain metadata recorded (Requirement 1.4) -------------------------
@@ -725,7 +837,9 @@ mod tests {
         let child = child_of(registry.root(), "academic", "academia");
         registry.insert(child).expect("first insert succeeds");
 
-        let stored = registry.get(&ChainId::new("academic")).expect("chain stored");
+        let stored = registry
+            .get(&ChainId::new("academic"))
+            .expect("chain stored");
         assert_eq!(stored.domain(), "academia");
         assert_eq!(stored.parent_id(), Some(&root_id));
         assert_eq!(stored.created_at(), Timestamp::from_secs(2_000));
@@ -905,7 +1019,9 @@ mod tests {
 
         // The derivation relationship is recorded (Requirement 1.2): the new chain is
         // stored with depth = parent.depth + 1 and path = parent.path + [new].
-        let stored = registry.get(&ChainId::new("academic")).expect("chain stored");
+        let stored = registry
+            .get(&ChainId::new("academic"))
+            .expect("chain stored");
         assert_eq!(stored.depth(), 1);
         assert_eq!(stored.parent_id(), Some(&root_id));
         assert_eq!(stored.domain(), "academia");
@@ -973,13 +1089,12 @@ mod tests {
     }
 
     #[test]
-    fn derive_at_depth_bound_accepts_16_and_rejects_17() {
+    fn derive_has_no_fixed_depth_ceiling_by_default_and_honors_optional_impl_bound() {
         let mut registry = registry_with_root();
         let mut parent = registry.root_id().clone();
 
-        // Derive a straight chain down to depth == MAX_DEPTH (16). Root is depth 0,
-        // so 16 successful derives land the deepest chain at depth 16.
-        for depth in 1..=MAX_DEPTH {
+        // Protocol default: depth 17..=20 succeeds without arbitrary cap.
+        for depth in 1..=20u32 {
             let id = format!("level-{depth}");
             let domain = format!("domain-{depth}");
             let new_id = registry
@@ -988,15 +1103,22 @@ mod tests {
             assert_eq!(registry.get(&new_id).unwrap().depth(), depth);
             parent = new_id;
         }
-        let len_before = registry.len();
-        assert_eq!(registry.get(&parent).unwrap().depth(), MAX_DEPTH);
+        assert_eq!(registry.get(&parent).unwrap().depth(), 20);
 
-        // Deriving a 17th level (new_depth = 17 > 16) is rejected (Requirement 1.7),
-        // and the registry is unchanged.
-        let too_deep = derive_req("level-17", &parent, "domain-17");
-        assert_eq!(registry.derive(too_deep), Err(GmcError::DepthExceeded));
-        assert_eq!(registry.len(), len_before);
-        assert!(!registry.contains(&ChainId::new("level-17")));
+        // Implementation-configured explicit bound rejects cleanly with DepthExceeded.
+        let mut bounded = registry_with_root().with_optional_max_depth(3);
+        let mut p = bounded.root_id().clone();
+        for d in 1..=3u32 {
+            p = bounded
+                .derive(derive_req(&format!("b-{d}"), &p, &format!("dom-{d}")))
+                .unwrap();
+        }
+        let len_before = bounded.len();
+        assert_eq!(
+            bounded.derive(derive_req("b-4", &p, "dom-4")),
+            Err(GmcError::DepthExceeded)
+        );
+        assert_eq!(bounded.len(), len_before);
     }
 
     #[test]
@@ -1102,7 +1224,11 @@ mod tests {
         assert!(!registry.detect_cycle(&ChainId::new("academic"), &ChainId::new("fresh")));
         // And the corresponding derive succeeds.
         assert!(registry
-            .derive(derive_req("fresh", &ChainId::new("academic"), "fresh-domain"))
+            .derive(derive_req(
+                "fresh",
+                &ChainId::new("academic"),
+                "fresh-domain"
+            ))
             .is_ok());
     }
 
@@ -1155,7 +1281,10 @@ mod tests {
         let academic = ChainId::new("academic");
 
         // Chains are born Active.
-        assert_eq!(registry.get(&academic).unwrap().lifecycle(), Lifecycle::Active);
+        assert_eq!(
+            registry.get(&academic).unwrap().lifecycle(),
+            Lifecycle::Active
+        );
 
         // Active -> Suspended -> Archived all take effect.
         registry
@@ -1188,12 +1317,9 @@ mod tests {
 
     /// Convenience: a single-steward child of `parent` carrying its own placeholder
     /// evaluation mechanism (i.e. a chain that *defines* a mechanism).
-    fn child_with_mechanism(
-        parent: &NestedMeritChain,
-        id: &str,
-        domain: &str,
-    ) -> NestedMeritChain {
-        child_of(parent, id, domain).with_evaluation_mechanism(EvaluationMechanismRef::placeholder())
+    fn child_with_mechanism(parent: &NestedMeritChain, id: &str, domain: &str) -> NestedMeritChain {
+        child_of(parent, id, domain)
+            .with_evaluation_mechanism(EvaluationMechanismRef::placeholder())
     }
 
     #[test]

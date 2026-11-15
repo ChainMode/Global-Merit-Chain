@@ -424,7 +424,11 @@ impl RegistrationService {
         ctx: &impl GrantContext,
     ) -> bool {
         let registration = self.find_valid_registration(contributor_id, chain_id);
-        can_grant(registration, ctx.has_linked_record(), ctx.evaluation_passed())
+        can_grant(
+            registration,
+            ctx.has_linked_record(),
+            ctx.evaluation_passed(),
+        )
     }
 
     /// Returns the registration with `id`, if present.

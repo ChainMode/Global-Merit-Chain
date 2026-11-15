@@ -656,7 +656,9 @@ mod tests {
         ledger.consume_quota(&cfg, dec("30")).expect("30 <= 100");
         assert_eq!(ledger.minted_this_period(), dec("30"));
 
-        ledger.consume_quota(&cfg, dec("20")).expect("30 + 20 <= 100");
+        ledger
+            .consume_quota(&cfg, dec("20"))
+            .expect("30 + 20 <= 100");
         assert_eq!(ledger.minted_this_period(), dec("50"));
         assert!(!ledger.is_exhausted());
     }
@@ -669,7 +671,10 @@ mod tests {
         ledger.consume_quota(&cfg, dec("80")).expect("80 <= 100");
 
         // 80 + 30 = 110 > 100 -> rejected.
-        assert_eq!(ledger.check_quota(&cfg, dec("30")), Err(GmcError::QuotaExceeded));
+        assert_eq!(
+            ledger.check_quota(&cfg, dec("30")),
+            Err(GmcError::QuotaExceeded)
+        );
         assert_eq!(
             ledger.consume_quota(&cfg, dec("30")),
             Err(GmcError::QuotaExceeded)
@@ -679,7 +684,9 @@ mod tests {
 
         // A request that still fits is accepted afterwards (no permanent lockout for
         // a periodic chain).
-        ledger.consume_quota(&cfg, dec("20")).expect("80 + 20 == 100");
+        ledger
+            .consume_quota(&cfg, dec("20"))
+            .expect("80 + 20 == 100");
         assert_eq!(ledger.minted_this_period(), dec("100"));
     }
 
@@ -691,7 +698,9 @@ mod tests {
         let mut ledger = fresh_ledger();
 
         ledger.consume_quota(&cfg, dec("60")).expect("60 <= 100");
-        ledger.consume_quota(&cfg, dec("40")).expect("60 + 40 == 100");
+        ledger
+            .consume_quota(&cfg, dec("40"))
+            .expect("60 + 40 == 100");
         assert_eq!(ledger.minted_this_period(), dec("100"));
 
         // Exactly at the cap; any further positive amount is over quota.
@@ -738,7 +747,9 @@ mod tests {
         ledger.consume_quota(&cfg, dec("30")).expect("30 <= 50");
         assert!(!ledger.is_exhausted());
 
-        ledger.consume_quota(&cfg, dec("20")).expect("30 + 20 == 50");
+        ledger
+            .consume_quota(&cfg, dec("20"))
+            .expect("30 + 20 == 50");
         assert!(ledger.is_exhausted());
     }
 
@@ -752,7 +763,9 @@ mod tests {
         let mut ledger_a = QuotaLedger::new(ChainId::from("chain-a"), Timestamp::from_secs(0));
         let mut ledger_b = QuotaLedger::new(ChainId::from("chain-b"), Timestamp::from_secs(0));
 
-        ledger_a.consume_quota(&cfg_a, dec("100")).expect("100 == 100");
+        ledger_a
+            .consume_quota(&cfg_a, dec("100"))
+            .expect("100 == 100");
         // chain A is now full / would reject more...
         assert_eq!(
             ledger_a.consume_quota(&cfg_a, dec("1")),
@@ -760,7 +773,9 @@ mod tests {
         );
         // ...but chain B is entirely unaffected.
         assert_eq!(ledger_b.minted_this_period(), Decimal::ZERO);
-        ledger_b.consume_quota(&cfg_b, dec("75")).expect("75 <= 100");
+        ledger_b
+            .consume_quota(&cfg_b, dec("75"))
+            .expect("75 <= 100");
         assert_eq!(ledger_b.minted_this_period(), dec("75"));
         assert_eq!(ledger_a.minted_this_period(), dec("100"));
     }
@@ -887,7 +902,9 @@ mod tests {
         assert_eq!(ledger.period_start(), Timestamp::from_secs(86_400));
 
         // Fresh allowance: full quota mintable again.
-        ledger.consume_quota(&cfg, dec("100")).expect("fresh period");
+        ledger
+            .consume_quota(&cfg, dec("100"))
+            .expect("fresh period");
         assert_eq!(ledger.minted_this_period(), dec("100"));
     }
 
@@ -974,7 +991,8 @@ mod tests {
         // A `now` earlier than period_start (clock skew) saturates elapsed to 0 and
         // never triggers a reset.
         let cfg = periodic_cfg_unit("100", TimeUnit::Day, "1");
-        let mut ledger = QuotaLedger::new(ChainId::from("chain-a"), Timestamp::from_secs(1_000_000));
+        let mut ledger =
+            QuotaLedger::new(ChainId::from("chain-a"), Timestamp::from_secs(1_000_000));
         ledger.consume_quota(&cfg, dec("30")).expect("30 <= 100");
         assert!(!ledger.reset_if_elapsed(&cfg, Timestamp::from_secs(500_000)));
         assert_eq!(ledger.minted_this_period(), dec("30"));
@@ -1011,7 +1029,10 @@ mod tests {
         set.consume(&b, dec("80")).expect("80 <= 100");
 
         // Roll chain A over a day later; chain B is untouched.
-        assert_eq!(set.reset_if_elapsed(&a, Timestamp::from_secs(86_400)), Ok(true));
+        assert_eq!(
+            set.reset_if_elapsed(&a, Timestamp::from_secs(86_400)),
+            Ok(true)
+        );
         assert_eq!(set.minted_this_period(&a), Some(Decimal::ZERO));
         assert_eq!(set.minted_this_period(&b), Some(dec("80")));
 

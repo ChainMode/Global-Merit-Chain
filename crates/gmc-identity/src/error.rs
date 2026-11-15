@@ -51,6 +51,10 @@ pub enum IdentityError {
     ReplayDetected,
 
     // --- Ownership registry ---
+    /// An ownership request supplied a disallowed owner type (e.g. an iFay or coFay
+    /// identifier, or an identifier whose prefix contradicts its declared `OwnerKind`).
+    /// Reject; state unchanged (`realign-cofay-ownership-to-fayid`).
+    OwnerTypeNotAllowed,
     /// The specified owner exists in neither the ownership registry nor the identity
     /// records.
     /// Reject; no coFay created. _Requirement 6.4._
@@ -104,6 +108,7 @@ impl IdentityError {
             IdentityError::IdentityIdFormatInvalid => "IdentityIdFormatInvalid",
             IdentityError::SignatureInvalid => "SignatureInvalid",
             IdentityError::ReplayDetected => "ReplayDetected",
+            IdentityError::OwnerTypeNotAllowed => "OwnerTypeNotAllowed",
             IdentityError::OwnerNotFound => "OwnerNotFound",
             IdentityError::OwnershipCycle => "OwnershipCycle",
             IdentityError::OwnershipDepthExceeded => "OwnershipDepthExceeded",

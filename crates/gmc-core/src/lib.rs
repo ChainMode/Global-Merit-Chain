@@ -100,3 +100,7 @@ pub mod chain_creation;
 /// and carbon→MeriToken — joining the cross-module trait seams (`RegistrationLookup`,
 /// `GrantContext`, `L1ProofSink`) so no module is left isolated/un-integrated.
 pub mod flows;
+
+/// Cold-start decaying initial Merit bootstrap (`B_i = 0` zero floor, faster decay,
+/// per-`opaqueRef` caps/cooldowns) and natural-person governance weight normalization.
+pub mod bootstrap;

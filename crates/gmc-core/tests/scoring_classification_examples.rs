@@ -102,8 +102,14 @@ fn weights_not_summing_to_one_are_weight_sum_invalid() {
     // 100% (here 0.7 + 0.5 = 1.2) is rejected with WeightSumInvalid; no MeriToken minted.
     let engine = ScoringEngine::new();
     let over_one = DimensionWeights::from_entries([
-        (Dimension::Thought, Ratio::new(Decimal::from_str("0.7").unwrap()).unwrap()),
-        (Dimension::Technique, Ratio::new(Decimal::from_str("0.5").unwrap()).unwrap()),
+        (
+            Dimension::Thought,
+            Ratio::new(Decimal::from_str("0.7").unwrap()).unwrap(),
+        ),
+        (
+            Dimension::Technique,
+            Ratio::new(Decimal::from_str("0.5").unwrap()).unwrap(),
+        ),
     ]);
 
     assert_eq!(engine.classify(over_one), Err(GmcError::WeightSumInvalid));

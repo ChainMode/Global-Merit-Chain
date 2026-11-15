@@ -46,6 +46,21 @@ pub enum GmcError {
     /// Institution creation application failed review.
     /// Reject; nothing created. _Requirement 2.8._
     InstitutionReviewFailed,
+    /// Organization ID or target subchain is already bound, or the organization ID
+    /// prefix is invalid (`realign-cofay-ownership-to-fayid`).
+    OrganizationBindingConflict,
+    /// Steward identifier is not a natural-person Human ID (e.g. an iFay, coFay, or
+    /// Organization ID was supplied as Steward).
+    StewardTypeNotAllowed,
+
+    // --- Initial Merit Bootstrap (`define-decaying-bootstrap-parameters`) ---
+    /// Cold-start bootstrap parameter configuration violates safety invariants
+    /// (e.g. `decay_multiplier < 2`, non-positive caps).
+    BootstrapConfigInvalid,
+    /// Bootstrap grant exceeds single-grant or per-`opaqueRef` lifetime cap.
+    BootstrapCapExceeded,
+    /// Bootstrap repeat-grant attempted while per-`opaqueRef` cooldown is still active.
+    BootstrapCooldownActive,
 
     // --- Evaluation mechanism & governance ---
     /// Evaluation mechanism config is invalid (no acquisition mode declared, or the
@@ -137,6 +152,11 @@ impl GmcError {
             GmcError::DomainConflict => "DomainConflict",
             GmcError::StewardNotQualified => "StewardNotQualified",
             GmcError::InstitutionReviewFailed => "InstitutionReviewFailed",
+            GmcError::OrganizationBindingConflict => "OrganizationBindingConflict",
+            GmcError::StewardTypeNotAllowed => "StewardTypeNotAllowed",
+            GmcError::BootstrapConfigInvalid => "BootstrapConfigInvalid",
+            GmcError::BootstrapCapExceeded => "BootstrapCapExceeded",
+            GmcError::BootstrapCooldownActive => "BootstrapCooldownActive",
             GmcError::MechanismConfigInvalid => "MechanismConfigInvalid",
             GmcError::GovernanceThresholdNotMet => "GovernanceThresholdNotMet",
             GmcError::QuotaExceeded => "QuotaExceeded",
@@ -176,7 +196,10 @@ mod tests {
     fn code_matches_variant_name() {
         assert_eq!(GmcError::DimensionUnmatched.code(), "DimensionUnmatched");
         assert_eq!(GmcError::WeightSumInvalid.code(), "WeightSumInvalid");
-        assert_eq!(GmcError::ProofVerificationFailed.code(), "ProofVerificationFailed");
+        assert_eq!(
+            GmcError::ProofVerificationFailed.code(),
+            "ProofVerificationFailed"
+        );
     }
 
     #[test]

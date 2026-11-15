@@ -436,7 +436,9 @@ impl RecoveryService {
                 new_key: new_key.clone(),
                 approvals: BTreeSet::new(),
             });
-        session.approvals.insert(base32_encode(guardian_key.as_bytes()));
+        session
+            .approvals
+            .insert(base32_encode(guardian_key.as_bytes()));
 
         // (3) Below threshold: leave the active key unchanged and keep the partial
         // session for later approvals (Requirement 12.6).
@@ -483,7 +485,9 @@ mod tests {
 
     /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed`.
     fn vk(seed: u8) -> VerifyingKey {
-        let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+        let bytes: Vec<u8> = (0..32u8)
+            .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+            .collect();
         VerifyingKey::new(bytes)
     }
 
@@ -532,7 +536,14 @@ mod tests {
         // RotationRecord {old, new, rotated_at} is appended.
         let (registry, mut ownership, mut binding, mut svc, mut recovery) = fixtures();
         let created_at = Timestamp::from_secs(1_000);
-        let id = make_ifay(&registry, &mut ownership, &mut binding, &mut svc, 0, created_at);
+        let id = make_ifay(
+            &registry,
+            &mut ownership,
+            &mut binding,
+            &mut svc,
+            0,
+            created_at,
+        );
 
         let old_key = svc.get(&id).unwrap().active_key.clone();
         let new_key = vk(1);
@@ -563,7 +574,14 @@ mod tests {
         // so the Pocket binding and ownership relationships are unaffected.
         let (registry, mut ownership, mut binding, mut svc, mut recovery) = fixtures();
         let created_at = Timestamp::from_secs(1_000);
-        let id = make_ifay(&registry, &mut ownership, &mut binding, &mut svc, 0, created_at);
+        let id = make_ifay(
+            &registry,
+            &mut ownership,
+            &mut binding,
+            &mut svc,
+            0,
+            created_at,
+        );
 
         // Snapshot the invariants tied to the id.
         let pocket_key_before = binding.pocket_key(&id);
@@ -571,7 +589,13 @@ mod tests {
         assert_eq!(svc.get(&id).unwrap().kind, IdentityKind::IFay);
 
         recovery
-            .rotate_key(&mut svc, &registry, &id, &vk(1), Timestamp::from_secs(2_000))
+            .rotate_key(
+                &mut svc,
+                &registry,
+                &id,
+                &vk(1),
+                Timestamp::from_secs(2_000),
+            )
             .unwrap();
 
         // The same id still resolves to the same record, kind and created_at.
@@ -715,15 +739,17 @@ mod tests {
         // change (no identity touched, no history recorded).
         let (registry, _ownership, _binding, mut svc, mut recovery) = fixtures();
         // Derive a well-formed id that was never created in `svc`.
-        let unknown = crate::identity_id::derive_identity_id(
-            &registry,
-            &SchemeTag::ed25519(),
-            &vk(123),
-        )
-        .unwrap();
+        let unknown =
+            crate::identity_id::derive_identity_id(&registry, &SchemeTag::ed25519(), &vk(123))
+                .unwrap();
 
-        let result =
-            recovery.rotate_key(&mut svc, &registry, &unknown, &vk(124), Timestamp::from_secs(2));
+        let result = recovery.rotate_key(
+            &mut svc,
+            &registry,
+            &unknown,
+            &vk(124),
+            Timestamp::from_secs(2),
+        );
 
         assert_eq!(result, Err(IdentityError::IdentityMismatch));
         // Nothing created or recorded.

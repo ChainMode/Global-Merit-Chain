@@ -534,15 +534,13 @@ impl L2Rollup {
             computed_at: now,
         };
 
-        self.record_contribution(
-            BufferedRecord::new(
-                record_id,
-                submission.contributor_id,
-                submission.chain_id,
-                submission.merit_amount,
-                now,
-            ),
-        );
+        self.record_contribution(BufferedRecord::new(
+            record_id,
+            submission.contributor_id,
+            submission.chain_id,
+            submission.merit_amount,
+            now,
+        ));
 
         result
     }
@@ -638,10 +636,7 @@ impl L2Rollup {
     /// integration task (20.1) implements [`L1ProofSink`] over the real `L1Settlement`
     /// (task 18.2's `submit_batch_proof` guard, Requirement 13.8). Propagates the
     /// sink's `Ok(())` / [`GmcError::ProofVerificationFailed`](crate::error::GmcError::ProofVerificationFailed).
-    pub fn submit_batch_proof_to(
-        batch: &Batch,
-        sink: &mut impl L1ProofSink,
-    ) -> GmcResult<()> {
+    pub fn submit_batch_proof_to(batch: &Batch, sink: &mut impl L1ProofSink) -> GmcResult<()> {
         sink.submit_batch_proof(batch.batch_root, &batch.proof)
     }
 
@@ -976,7 +971,9 @@ mod tests {
             Some(BatchTrigger::RecordThreshold)
         );
 
-        let batch = rollup.try_submit_batch(ts(2)).expect("1000th record flushes");
+        let batch = rollup
+            .try_submit_batch(ts(2))
+            .expect("1000th record flushes");
         assert_eq!(batch.len(), 1_000);
         assert_eq!(batch.trigger, BatchTrigger::RecordThreshold);
     }
@@ -996,7 +993,9 @@ mod tests {
             Some(BatchTrigger::IntervalElapsed)
         );
 
-        let batch = rollup.try_submit_batch(ts(160)).expect("60 s elapsed flushes");
+        let batch = rollup
+            .try_submit_batch(ts(160))
+            .expect("60 s elapsed flushes");
         assert_eq!(batch.len(), 5);
         assert_eq!(batch.trigger, BatchTrigger::IntervalElapsed);
     }
@@ -1152,8 +1151,14 @@ mod tests {
         assert_eq!(batch.submitted_at, ts(60));
         assert!(!batch.batch_root.is_genesis());
         // Records preserved in ingestion order.
-        assert_eq!(batch.records[0].record_id, RollupRecordId::new("rollup-rec-0"));
-        assert_eq!(batch.records[2].record_id, RollupRecordId::new("rollup-rec-2"));
+        assert_eq!(
+            batch.records[0].record_id,
+            RollupRecordId::new("rollup-rec-0")
+        );
+        assert_eq!(
+            batch.records[2].record_id,
+            RollupRecordId::new("rollup-rec-2")
+        );
     }
 
     // --- Requirement 9.7: L1ProofSink submission boundary ---------------------
@@ -1313,7 +1318,10 @@ mod tests {
         let mut ctrl = ShardController::new();
         // Overload begins at t=0 (rate 1500 > 1000 capacity).
         let d = ctrl.observe_rate(1_500, ts(0));
-        assert!(!d.scaled_out, "first overload observation only anchors the window");
+        assert!(
+            !d.scaled_out,
+            "first overload observation only anchors the window"
+        );
         assert!(ctrl.is_overloaded());
         assert_eq!(ctrl.overload_since(), Some(ts(0)));
 
@@ -1377,7 +1385,10 @@ mod tests {
 
         // Now 2 instances (2000 capacity). A 2500 rate is a fresh overload.
         let d = ctrl.observe_rate(2_500, ts(100));
-        assert!(!d.scaled_out, "new overload re-anchors at the scale-out time");
+        assert!(
+            !d.scaled_out,
+            "new overload re-anchors at the scale-out time"
+        );
         // Sustained beyond 60 s from the re-anchor (t=61) → scale 2 → 3 to cover 2500.
         let d = ctrl.observe_rate(2_500, ts(122));
         assert!(d.scaled_out);

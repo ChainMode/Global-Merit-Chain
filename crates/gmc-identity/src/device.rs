@@ -352,11 +352,7 @@ impl DeviceRegistry {
     /// here. Refusing operations later signed by a `Revoked` device key (Req 9.3) is also
     /// enforced in `Identity_Core`'s authorization step, which reads the status this
     /// method records.
-    pub fn revoke(
-        &mut self,
-        identity_id: &IdentityId,
-        device_id: &DeviceId,
-    ) -> IdentityResult<()> {
+    pub fn revoke(&mut self, identity_id: &IdentityId, device_id: &DeviceId) -> IdentityResult<()> {
         // Idempotent: only flip an Active credential. Already-Revoked or non-existent
         // credentials leave state completely untouched and still return Ok (Req 9.4).
         if let Some(credential) = self
@@ -425,7 +421,9 @@ mod tests {
     /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed` (distinct
     /// seeds → distinct keys → distinct `IdentityId`/`DeviceId`).
     fn vk(seed: u8) -> VerifyingKey {
-        let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+        let bytes: Vec<u8> = (0..32u8)
+            .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+            .collect();
         VerifyingKey::new(bytes)
     }
 
@@ -477,28 +475,52 @@ mod tests {
         let watch = vk(52);
 
         let phone_id = registry
-            .enroll(&identity, &phone, DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity,
+                &phone,
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         let computer_id = registry
-            .enroll(&identity, &computer, DeviceType::Computer, Timestamp::from_secs(2))
+            .enroll(
+                &identity,
+                &computer,
+                DeviceType::Computer,
+                Timestamp::from_secs(2),
+            )
             .unwrap();
         let watch_id = registry
-            .enroll(&identity, &watch, DeviceType::Watch, Timestamp::from_secs(3))
+            .enroll(
+                &identity,
+                &watch,
+                DeviceType::Watch,
+                Timestamp::from_secs(3),
+            )
             .unwrap();
 
         // Three distinct credentials coexist under the same identity.
         assert_ne!(phone_id, computer_id);
         assert_ne!(computer_id, watch_id);
         assert_eq!(
-            registry.credential(&identity, &phone_id).unwrap().device_type(),
+            registry
+                .credential(&identity, &phone_id)
+                .unwrap()
+                .device_type(),
             DeviceType::Phone
         );
         assert_eq!(
-            registry.credential(&identity, &computer_id).unwrap().device_type(),
+            registry
+                .credential(&identity, &computer_id)
+                .unwrap()
+                .device_type(),
             DeviceType::Computer
         );
         assert_eq!(
-            registry.credential(&identity, &watch_id).unwrap().device_type(),
+            registry
+                .credential(&identity, &watch_id)
+                .unwrap()
+                .device_type(),
             DeviceType::Watch
         );
     }
@@ -514,13 +536,23 @@ mod tests {
         let device_key = vk(50);
 
         let device_id = registry
-            .enroll(&identity, &device_key, DeviceType::Phone, Timestamp::from_secs(10))
+            .enroll(
+                &identity,
+                &device_key,
+                DeviceType::Phone,
+                Timestamp::from_secs(10),
+            )
             .unwrap();
         let before = registry.clone();
 
         // A second enroll of the same device key (even with a different type/time) fails.
         let err = registry
-            .enroll(&identity, &device_key, DeviceType::Computer, Timestamp::from_secs(99))
+            .enroll(
+                &identity,
+                &device_key,
+                DeviceType::Computer,
+                Timestamp::from_secs(99),
+            )
             .unwrap_err();
         assert_eq!(err, IdentityError::DeviceDuplicate);
 
@@ -540,11 +572,21 @@ mod tests {
         let device_key = vk(50);
 
         let id_a = registry
-            .enroll(&identity_a, &device_key, DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity_a,
+                &device_key,
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         // Enrolling the same device key under a DIFFERENT identity is allowed.
         let id_b = registry
-            .enroll(&identity_b, &device_key, DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity_b,
+                &device_key,
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
 
         // Same key → same fingerprint, but stored under separate identities.
@@ -567,14 +609,19 @@ mod tests {
 
         // Every DeviceType has exactly one accepted tag and round-trips.
         for device_type in DeviceType::ALL {
-            assert_eq!(parse_device_type(device_type_tag(device_type)), Ok(device_type));
+            assert_eq!(
+                parse_device_type(device_type_tag(device_type)),
+                Ok(device_type)
+            );
         }
     }
 
     #[test]
     fn parse_device_type_rejects_unknown_tag_with_device_type_invalid() {
         // Property 14: any tag outside the prescribed enum → DeviceTypeInvalid.
-        for bad in ["", "tablet", "Phone", "PHONE", "carhmi", "cloudsdk", "phone "] {
+        for bad in [
+            "", "tablet", "Phone", "PHONE", "carhmi", "cloudsdk", "phone ",
+        ] {
             assert_eq!(
                 parse_device_type(bad),
                 Err(IdentityError::DeviceTypeInvalid),
@@ -613,13 +660,28 @@ mod tests {
         let watch = vk(52);
 
         let phone_id = registry
-            .enroll(&identity, &phone, DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity,
+                &phone,
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         let computer_id = registry
-            .enroll(&identity, &computer, DeviceType::Computer, Timestamp::from_secs(2))
+            .enroll(
+                &identity,
+                &computer,
+                DeviceType::Computer,
+                Timestamp::from_secs(2),
+            )
             .unwrap();
         let watch_id = registry
-            .enroll(&identity, &watch, DeviceType::Watch, Timestamp::from_secs(3))
+            .enroll(
+                &identity,
+                &watch,
+                DeviceType::Watch,
+                Timestamp::from_secs(3),
+            )
             .unwrap();
 
         // Revoke one of them so the list carries a mix of states.
@@ -678,13 +740,28 @@ mod tests {
         let identity_a = id_of(&vk(1));
         let identity_b = id_of(&vk(2));
         registry
-            .enroll(&identity_a, &vk(50), DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity_a,
+                &vk(50),
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         registry
-            .enroll(&identity_b, &vk(60), DeviceType::Computer, Timestamp::from_secs(2))
+            .enroll(
+                &identity_b,
+                &vk(60),
+                DeviceType::Computer,
+                Timestamp::from_secs(2),
+            )
             .unwrap();
         registry
-            .enroll(&identity_b, &vk(61), DeviceType::Watch, Timestamp::from_secs(3))
+            .enroll(
+                &identity_b,
+                &vk(61),
+                DeviceType::Watch,
+                Timestamp::from_secs(3),
+            )
             .unwrap();
 
         assert_eq!(registry.list(&identity_a).len(), 1);
@@ -701,12 +778,22 @@ mod tests {
         let identity = id_of(&vk(1));
         let device_key = vk(50);
         let device_id = registry
-            .enroll(&identity, &device_key, DeviceType::Phone, Timestamp::from_secs(7))
+            .enroll(
+                &identity,
+                &device_key,
+                DeviceType::Phone,
+                Timestamp::from_secs(7),
+            )
             .unwrap();
 
-        assert!(registry.credential(&identity, &device_id).unwrap().is_active());
+        assert!(registry
+            .credential(&identity, &device_id)
+            .unwrap()
+            .is_active());
 
-        registry.revoke(&identity, &device_id).expect("revoke succeeds");
+        registry
+            .revoke(&identity, &device_id)
+            .expect("revoke succeeds");
 
         let credential = registry.credential(&identity, &device_id).unwrap();
         assert_eq!(credential.status(), DeviceStatus::Revoked);
@@ -725,7 +812,12 @@ mod tests {
         let mut registry = DeviceRegistry::new();
         let identity = id_of(&vk(1));
         let device_id = registry
-            .enroll(&identity, &vk(50), DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity,
+                &vk(50),
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
 
         // Before revoke: Active.
@@ -750,16 +842,27 @@ mod tests {
         let mut registry = DeviceRegistry::new();
         let identity = id_of(&vk(1));
         let device_id = registry
-            .enroll(&identity, &vk(50), DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity,
+                &vk(50),
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
 
-        registry.revoke(&identity, &device_id).expect("first revoke");
+        registry
+            .revoke(&identity, &device_id)
+            .expect("first revoke");
         let after_first = registry.clone();
 
         // Re-revoke twice more: each is Ok and leaves the entire registry unchanged.
-        registry.revoke(&identity, &device_id).expect("second revoke is a no-op");
+        registry
+            .revoke(&identity, &device_id)
+            .expect("second revoke is a no-op");
         assert_eq!(registry, after_first);
-        registry.revoke(&identity, &device_id).expect("third revoke is a no-op");
+        registry
+            .revoke(&identity, &device_id)
+            .expect("third revoke is a no-op");
         assert_eq!(registry, after_first);
 
         assert_eq!(
@@ -774,10 +877,20 @@ mod tests {
         let mut registry = DeviceRegistry::new();
         let identity = id_of(&vk(1));
         let target = registry
-            .enroll(&identity, &vk(50), DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity,
+                &vk(50),
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         let other = registry
-            .enroll(&identity, &vk(51), DeviceType::Computer, Timestamp::from_secs(2))
+            .enroll(
+                &identity,
+                &vk(51),
+                DeviceType::Computer,
+                Timestamp::from_secs(2),
+            )
             .unwrap();
 
         registry.revoke(&identity, &target).unwrap();
@@ -798,7 +911,12 @@ mod tests {
         let mut registry = DeviceRegistry::new();
         let identity = id_of(&vk(1));
         registry
-            .enroll(&identity, &vk(50), DeviceType::Phone, Timestamp::from_secs(1))
+            .enroll(
+                &identity,
+                &vk(50),
+                DeviceType::Phone,
+                Timestamp::from_secs(1),
+            )
             .unwrap();
         let before = registry.clone();
 

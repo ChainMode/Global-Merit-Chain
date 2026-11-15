@@ -42,7 +42,9 @@ use gmc_core::l1_settlement::{L1Settlement, StateRoot};
 use gmc_core::merit::{MeritBatch, MeritPocket, E};
 use gmc_core::minting::MintingService;
 use gmc_core::quota::{QuotaConfig, QuotaLedger, RefreshPeriod, TimeUnit};
-use gmc_core::recording::{ContributionRequest, EvidenceRef as RecordingEvidenceRef, RecordingService};
+use gmc_core::recording::{
+    ContributionRequest, EvidenceRef as RecordingEvidenceRef, RecordingService,
+};
 use gmc_core::registration::{RegistrationApplication, RegistrationService};
 use gmc_core::registry::{ChainRegistry, NestedMeritChain, OriginType};
 use gmc_core::retroactive::{
@@ -139,7 +141,10 @@ fn retro_voters(approve: bool) -> Vec<RetroVoter> {
     (0..7)
         .map(|i| {
             RetroVoter::new(
-                Stakeholder::new(FayID::new(format!("voter-{i}")), Ratio::from_percent(50).unwrap()),
+                Stakeholder::new(
+                    FayID::new(format!("voter-{i}")),
+                    Ratio::from_percent(50).unwrap(),
+                ),
                 Decimal::from_int(10),
                 approve,
             )
@@ -167,7 +172,9 @@ fn vote_channel_success_derives_and_anchors() {
         &mut registry,
         &mut l1,
         creation_request("academic", "academic"),
-        CreationChannel::Vote { governance_passed: true },
+        CreationChannel::Vote {
+            governance_passed: true,
+        },
     )
     .expect("a passing vote derives and anchors the chain");
 
@@ -196,7 +203,9 @@ fn vote_channel_rejection_creates_and_anchors_nothing() {
         &mut registry,
         &mut l1,
         creation_request("academic", "academic"),
-        CreationChannel::Vote { governance_passed: false },
+        CreationChannel::Vote {
+            governance_passed: false,
+        },
     )
     .expect_err("a below-threshold vote must be rejected");
 
@@ -217,7 +226,9 @@ fn steward_channel_success_derives_and_anchors() {
         &mut registry,
         &mut l1,
         creation_request("charity", "charity"),
-        CreationChannel::Steward { steward_qualified: true },
+        CreationChannel::Steward {
+            steward_qualified: true,
+        },
     )
     .expect("a qualified steward derives and anchors the chain");
 
@@ -241,7 +252,9 @@ fn steward_channel_rejection_creates_and_anchors_nothing() {
         &mut registry,
         &mut l1,
         creation_request("charity", "charity"),
-        CreationChannel::Steward { steward_qualified: false },
+        CreationChannel::Steward {
+            steward_qualified: false,
+        },
     )
     .expect_err("an unqualified steward must be rejected");
 
@@ -262,7 +275,9 @@ fn institution_channel_success_derives_and_anchors() {
         &mut registry,
         &mut l1,
         creation_request("environment", "environment"),
-        CreationChannel::Institution { review_passed: true },
+        CreationChannel::Institution {
+            review_passed: true,
+        },
     )
     .expect("a passing institution review derives and anchors the chain");
 
@@ -286,7 +301,9 @@ fn institution_channel_rejection_creates_and_anchors_nothing() {
         &mut registry,
         &mut l1,
         creation_request("environment", "environment"),
-        CreationChannel::Institution { review_passed: false },
+        CreationChannel::Institution {
+            review_passed: false,
+        },
     )
     .expect_err("a failed institution review must be rejected");
 
@@ -308,21 +325,27 @@ fn three_channels_create_three_distinctly_originated_chains() {
         &mut registry,
         &mut l1,
         creation_request("a", "a"),
-        CreationChannel::Vote { governance_passed: true },
+        CreationChannel::Vote {
+            governance_passed: true,
+        },
     )
     .unwrap();
     run_chain_creation(
         &mut registry,
         &mut l1,
         creation_request("b", "b"),
-        CreationChannel::Steward { steward_qualified: true },
+        CreationChannel::Steward {
+            steward_qualified: true,
+        },
     )
     .unwrap();
     run_chain_creation(
         &mut registry,
         &mut l1,
         creation_request("c", "c"),
-        CreationChannel::Institution { review_passed: true },
+        CreationChannel::Institution {
+            review_passed: true,
+        },
     )
     .unwrap();
 

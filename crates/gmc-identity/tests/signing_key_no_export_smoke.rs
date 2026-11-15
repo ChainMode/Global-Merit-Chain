@@ -26,7 +26,7 @@
 //!    `Signature`, never key material.
 
 use gmc_identity::signer::{reference_keypair, ReferenceSigner, Signer};
-use gmc_identity::types::{Signature, SchemeTag, SigningKey};
+use gmc_identity::types::{SchemeTag, Signature, SigningKey};
 
 /// The exact redacted form `SigningKey`'s `Debug` impl produces for a 4-byte key.
 ///
@@ -59,7 +59,7 @@ fn signing_key_debug_is_redacted_and_does_not_leak_bytes() {
     assert!(!rendered.contains("deadbeef"));
     assert!(!rendered.contains("DEADBEEF"));
     assert!(!rendered.contains("de, ad")); // no raw byte sequence
-    // Decimal values of the secret bytes (0xde=222, 0xad=173, 0xbe=190, 0xef=239):
+                                           // Decimal values of the secret bytes (0xde=222, 0xad=173, 0xbe=190, 0xef=239):
     for decimal in ["222", "173", "190", "239"] {
         assert!(
             !rendered.contains(decimal),
@@ -105,6 +105,8 @@ fn signer_trait_only_consumes_signing_key_to_produce_signature() {
 /// the trait, it would be callable here — it does not, so it cannot be.
 fn drive_signer(signer: &dyn Signer, sk: &SigningKey, msg: &[u8]) -> (SchemeTag, Signature) {
     let tag = signer.scheme_tag();
-    let signature = signer.sign(sk, msg).expect("reference signer signs cleanly");
+    let signature = signer
+        .sign(sk, msg)
+        .expect("reference signer signs cleanly");
     (tag, signature)
 }

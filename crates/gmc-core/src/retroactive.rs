@@ -621,7 +621,10 @@ mod tests {
         assert_eq!(declaration.review_status(), ReviewStatus::Pending);
         assert_eq!(declaration.contributor_id(), &FayID::new("alice"));
         assert_eq!(declaration.chain_id(), &ChainId::new("carbon-reduction"));
-        assert_eq!(declaration.occurred_at(), Timestamp::from_secs(1_600_000_000));
+        assert_eq!(
+            declaration.occurred_at(),
+            Timestamp::from_secs(1_600_000_000)
+        );
         assert_eq!(declaration.evidence_refs().len(), 1);
         assert_eq!(module.len(), 1);
     }
@@ -646,10 +649,13 @@ mod tests {
         let id = module
             .submit(application_with(vec![
                 EvidenceRef::new("ipfs://cid-x", "0xh", false), // not replayable
-                replayable_ref(),                                // replayable
+                replayable_ref(),                               // replayable
             ]))
             .expect("at least one replayable ref must suffice");
-        assert_eq!(module.get(&id).unwrap().review_status(), ReviewStatus::Pending);
+        assert_eq!(
+            module.get(&id).unwrap().review_status(),
+            ReviewStatus::Pending
+        );
     }
 
     // --- Requirement 10.1: missing required field rejected ---
@@ -660,7 +666,9 @@ mod tests {
         let mut app = application_with(vec![replayable_ref()]);
         app.contributor_id = FayID::new("");
 
-        let err = module.submit(app).expect_err("empty contributor id must be rejected");
+        let err = module
+            .submit(app)
+            .expect_err("empty contributor id must be rejected");
         assert_eq!(err, GmcError::FieldValidation);
         assert!(module.is_empty());
     }
@@ -671,7 +679,9 @@ mod tests {
         let mut app = application_with(vec![replayable_ref()]);
         app.chain_id = ChainId::new("");
 
-        let err = module.submit(app).expect_err("empty chain id must be rejected");
+        let err = module
+            .submit(app)
+            .expect_err("empty chain id must be rejected");
         assert_eq!(err, GmcError::FieldValidation);
         assert!(module.is_empty());
     }
@@ -682,7 +692,9 @@ mod tests {
         let mut app = application_with(vec![replayable_ref()]);
         app.description = "   ".to_owned();
 
-        let err = module.submit(app).expect_err("blank description must be rejected");
+        let err = module
+            .submit(app)
+            .expect_err("blank description must be rejected");
         assert_eq!(err, GmcError::FieldValidation);
         assert!(module.is_empty());
     }
@@ -708,7 +720,9 @@ mod tests {
         // Flagged not replayable: a reviewer cannot independently verify it.
         let err = module
             .submit(application_with(vec![EvidenceRef::new(
-                "ipfs://cid", "0xhash", false,
+                "ipfs://cid",
+                "0xhash",
+                false,
             )]))
             .expect_err("non-replayable evidence must be rejected");
         assert_eq!(err, GmcError::EvidenceInvalid);
@@ -727,7 +741,11 @@ mod tests {
 
         // Flagged replayable but missing the hash → cannot be verified.
         let err = module
-            .submit(application_with(vec![EvidenceRef::new("ipfs://cid", "", true)]))
+            .submit(application_with(vec![EvidenceRef::new(
+                "ipfs://cid",
+                "",
+                true,
+            )]))
             .expect_err("replayable flag with empty hash must be rejected");
         assert_eq!(err, GmcError::EvidenceInvalid);
 
@@ -783,8 +801,14 @@ mod tests {
         let regular = ratio("0.5");
         let retro = retro_threshold(regular);
         assert_eq!(retro.value(), RETRO_TWO_THIRDS_FLOOR);
-        assert!(retro.value() > regular.value(), "retro must be strictly > regular");
-        assert!(retro.value() >= RETRO_TWO_THIRDS_FLOOR, "retro must be >= 2/3");
+        assert!(
+            retro.value() > regular.value(),
+            "retro must be strictly > regular"
+        );
+        assert!(
+            retro.value() >= RETRO_TWO_THIRDS_FLOOR,
+            "retro must be >= 2/3"
+        );
     }
 
     #[test]
@@ -792,8 +816,14 @@ mod tests {
         // regular == 2/3 floor → max(regular, 2/3) == regular, so bump by one ulp.
         let regular = Ratio::new(RETRO_TWO_THIRDS_FLOOR).unwrap();
         let retro = retro_threshold(regular);
-        assert!(retro.value() > regular.value(), "retro must be strictly > regular");
-        assert!(retro.value() >= RETRO_TWO_THIRDS_FLOOR, "retro must be >= 2/3");
+        assert!(
+            retro.value() > regular.value(),
+            "retro must be strictly > regular"
+        );
+        assert!(
+            retro.value() >= RETRO_TWO_THIRDS_FLOOR,
+            "retro must be >= 2/3"
+        );
         // Exactly one ulp above the 2/3 floor.
         assert_eq!(retro.value(), Decimal::from_raw(666_668));
     }
@@ -803,8 +833,14 @@ mod tests {
         // regular > 2/3 → retro == regular + one ulp (strictly greater, still >= 2/3).
         let regular = ratio("0.8");
         let retro = retro_threshold(regular);
-        assert!(retro.value() > regular.value(), "retro must be strictly > regular");
-        assert!(retro.value() >= RETRO_TWO_THIRDS_FLOOR, "retro must be >= 2/3");
+        assert!(
+            retro.value() > regular.value(),
+            "retro must be strictly > regular"
+        );
+        assert!(
+            retro.value() >= RETRO_TWO_THIRDS_FLOOR,
+            "retro must be >= 2/3"
+        );
         assert_eq!(
             retro.value(),
             regular.value().checked_add(Decimal::from_raw(1)).unwrap()
@@ -878,7 +914,10 @@ mod tests {
             .resolve_vote(&id, ratio("0.6"), ratio("0.5"), "vote-strict")
             .unwrap_err();
         assert_eq!(err, GmcError::RetroThresholdNotMet);
-        assert_eq!(module.get(&id).unwrap().review_status(), ReviewStatus::Rejected);
+        assert_eq!(
+            module.get(&id).unwrap().review_status(),
+            ReviewStatus::Rejected
+        );
     }
 
     // --- resolve_vote validation: unknown / already-resolved declarations ---
@@ -887,7 +926,12 @@ mod tests {
     fn resolve_vote_on_unknown_declaration_errors() {
         let mut module = RetroactiveReviewModule::new();
         let err = module
-            .resolve_vote(&DeclarationId::new("retro-404"), ratio("0.9"), ratio("0.5"), "v")
+            .resolve_vote(
+                &DeclarationId::new("retro-404"),
+                ratio("0.9"),
+                ratio("0.5"),
+                "v",
+            )
             .expect_err("resolving an unknown declaration must error");
         assert_eq!(err, GmcError::FieldValidation);
     }
@@ -917,7 +961,9 @@ mod tests {
         module
             .resolve_vote(&id, ratio("0.7"), ratio("0.5"), "vote-1")
             .unwrap();
-        module.anchor_outcome(&id).expect("anchoring a known declaration succeeds");
+        module
+            .anchor_outcome(&id)
+            .expect("anchoring a known declaration succeeds");
         assert!(module.get(&id).unwrap().anchored());
     }
 

@@ -74,7 +74,10 @@ fn assert_rejects_and_leaves_state_unchanged(bad_amount: Decimal) {
     let batches_before = pocket.batches.len();
     let floor_before = pocket.min_merit();
     let minted_before = ledger.minted_this_period();
-    let cur_before: Vec<Decimal> = SAMPLE_TIMES.iter().map(|&t| pocket.cur_merit(ts(t))).collect();
+    let cur_before: Vec<Decimal> = SAMPLE_TIMES
+        .iter()
+        .map(|&t| pocket.cur_merit(ts(t)))
+        .collect();
     let pocket_snapshot = pocket.clone();
     let ledger_snapshot = ledger.clone();
 
@@ -140,7 +143,11 @@ fn rejected_mint_does_not_consume_quota_even_when_repeated() {
     let mut ledger = fresh_ledger();
     let mut pocket = backed_pocket();
 
-    for bad in [Decimal::ZERO, Decimal::from_int(-1), Decimal::from_int(-100)] {
+    for bad in [
+        Decimal::ZERO,
+        Decimal::from_int(-1),
+        Decimal::from_int(-100),
+    ] {
         let err = service
             .mint(
                 &mut pocket,

@@ -404,11 +404,7 @@ mod tests {
             .open_vote(
                 "subject",
                 ratio("0.5"),
-                [
-                    voter("a", "25"),
-                    voter("b", "25"),
-                    voter("c", "50"),
-                ],
+                [voter("a", "25"), voter("b", "25"), voter("c", "50")],
             )
             .unwrap();
 
@@ -421,7 +417,9 @@ mod tests {
             .voter_weights(id)
             .unwrap()
             .into_iter()
-            .fold(Decimal::ZERO, |acc, (_, w)| acc.checked_add(w.value()).unwrap());
+            .fold(Decimal::ZERO, |acc, (_, w)| {
+                acc.checked_add(w.value()).unwrap()
+            });
         assert_eq!(sum, Decimal::ONE);
     }
 
@@ -575,7 +573,9 @@ mod tests {
     #[test]
     fn anchor_outcome_placeholder_marks_anchored() {
         let mut gov = GovernanceModule::new();
-        let id = gov.open_vote("s", ratio("0.5"), [voter("a", "10")]).unwrap();
+        let id = gov
+            .open_vote("s", ratio("0.5"), [voter("a", "10")])
+            .unwrap();
         assert_eq!(gov.is_anchored(id), Some(false));
         gov.anchor_outcome(id).unwrap();
         assert_eq!(gov.is_anchored(id), Some(true));

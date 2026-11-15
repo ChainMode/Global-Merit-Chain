@@ -252,11 +252,8 @@ pub trait RegistrationLookup {
     ///
     /// The returned id is what [`RecordingService::record`] links the new
     /// [`ContributionRecord`] to (Requirement 9.3).
-    fn find_valid_registration(
-        &self,
-        contributor_id: &FayID,
-        chain_id: &ChainId,
-    ) -> Option<String>;
+    fn find_valid_registration(&self, contributor_id: &FayID, chain_id: &ChainId)
+        -> Option<String>;
 
     /// Convenience predicate: whether a matching valid registration exists.
     ///
@@ -619,9 +616,11 @@ mod tests {
     #[test]
     fn has_valid_registration_default_matches_find() {
         let registrations = StubRegistrations::new().with_valid("alice", "academia");
-        assert!(registrations
-            .has_valid_registration(&FayID::new("alice"), &ChainId::new("academia")));
-        assert!(!registrations
-            .has_valid_registration(&FayID::new("alice"), &ChainId::new("charity")));
+        assert!(
+            registrations.has_valid_registration(&FayID::new("alice"), &ChainId::new("academia"))
+        );
+        assert!(
+            !registrations.has_valid_registration(&FayID::new("alice"), &ChainId::new("charity"))
+        );
     }
 }

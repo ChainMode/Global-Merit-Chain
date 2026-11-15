@@ -46,9 +46,7 @@ use proptest::prelude::*;
 /// An arbitrary electorate: `2..=max` voters, each with a strictly-positive `curMerit`
 /// (so the total is positive and every voter carries non-zero weight), paired with an
 /// arbitrary approve/reject ballot per voter.
-fn electorate_and_ballots(
-    max: usize,
-) -> impl Strategy<Value = (Vec<i128>, Vec<bool>)> {
+fn electorate_and_ballots(max: usize) -> impl Strategy<Value = (Vec<i128>, Vec<bool>)> {
     let n = max.max(2);
     proptest::collection::vec(1i128..=1_000_000_000i128, 2..=n).prop_flat_map(|merits| {
         let len = merits.len();

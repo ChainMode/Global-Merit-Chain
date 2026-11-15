@@ -11,8 +11,8 @@
 //!   under another scheme whose format differs.
 
 use gmc_identity::scheme::{ByteFormat, SchemeDescriptor, SchemeRegistry};
-use gmc_identity::types::{Signature, SigningKey, VerifyingKey};
 use gmc_identity::types::SchemeTag;
+use gmc_identity::types::{Signature, SigningKey, VerifyingKey};
 
 /// Req 1.1: resolving `ed25519` from the default registry yields a descriptor whose tag
 /// is `ed25519` and whose three byte-formats pin the standard Ed25519 lengths
@@ -92,22 +92,34 @@ fn keys_and_signatures_are_validated_only_against_their_declared_scheme_format()
     // Opaque material sized for the CUSTOM scheme passes under the custom scheme...
     let custom_vk = VerifyingKey::new(vec![0u8; 8]);
     let custom_sig = Signature::new(vec![0u8; 16]);
-    assert_eq!(descriptor.validate_verifying_key(custom_vk.as_bytes()), Ok(()));
+    assert_eq!(
+        descriptor.validate_verifying_key(custom_vk.as_bytes()),
+        Ok(())
+    );
     assert_eq!(descriptor.validate_signature(custom_sig.as_bytes()), Ok(()));
 
     // ...while Ed25519-sized material (32-byte key, 64-byte signature) is REJECTED by
     // the custom scheme: the same bytes are judged solely by THIS scheme's format.
     let ed_sized_vk = VerifyingKey::new(vec![0u8; 32]);
     let ed_sized_sig = Signature::new(vec![0u8; 64]);
-    assert!(descriptor.validate_verifying_key(ed_sized_vk.as_bytes()).is_err());
-    assert!(descriptor.validate_signature(ed_sized_sig.as_bytes()).is_err());
+    assert!(descriptor
+        .validate_verifying_key(ed_sized_vk.as_bytes())
+        .is_err());
+    assert!(descriptor
+        .validate_signature(ed_sized_sig.as_bytes())
+        .is_err());
 
     // The reverse confirms the verdict tracks the scheme, not the bytes: under the
     // standard Ed25519 descriptor the Ed25519-sized material is valid and the
     // custom-sized material is rejected.
     let ed25519 = SchemeDescriptor::ed25519();
-    assert_eq!(ed25519.validate_verifying_key(ed_sized_vk.as_bytes()), Ok(()));
+    assert_eq!(
+        ed25519.validate_verifying_key(ed_sized_vk.as_bytes()),
+        Ok(())
+    );
     assert_eq!(ed25519.validate_signature(ed_sized_sig.as_bytes()), Ok(()));
-    assert!(ed25519.validate_verifying_key(custom_vk.as_bytes()).is_err());
+    assert!(ed25519
+        .validate_verifying_key(custom_vk.as_bytes())
+        .is_err());
     assert!(ed25519.validate_signature(custom_sig.as_bytes()).is_err());
 }

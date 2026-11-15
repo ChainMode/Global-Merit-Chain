@@ -45,7 +45,12 @@ use gmc_identity::types::{SchemeTag, VerifyingKey};
 /// branch so a randomly generated "illegal" string that happens to equal a valid tag is
 /// skipped rather than mis-asserted.
 const VALID_TAGS: [&str; 6] = [
-    "phone", "computer", "watch", "robot", "car_hmi", "cloud_sdk",
+    "phone",
+    "computer",
+    "watch",
+    "robot",
+    "car_hmi",
+    "cloud_sdk",
 ];
 
 /// A stable [`IdentityId`] derived from a fixed 32-byte verifying key under the default

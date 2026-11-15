@@ -1,6 +1,231 @@
-{}
-
-
-
-
-
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meritora.org/schemas/gmchain/draft/schema.json",
+  "title": "Global Merit Chain (GMChain) Protocol Draft Schema",
+  "description": "Normative data structures for GMChain single-layer coFay ownership, unbounded Nested Merit Chain derivation, 1:1 OrganizationID binding, natural-person Steward accountability, and zero-floor (B_i = 0) cold-start bootstrap Merit batches.",
+  "type": "object",
+  "$defs": {
+    "HumanID": {
+      "type": "string",
+      "description": "Canonical FayID Human Prime identifier (<prefix>_<base32>).",
+      "pattern": "^hid_[a-z2-7]{16,104}$"
+    },
+    "OrganizationID": {
+      "type": "string",
+      "description": "Canonical FayID Organization identifier (<prefix>_<base32> or DNS-safe slug).",
+      "pattern": "^org_([a-z2-7]{16,104}|[a-z0-9][a-z0-9-]{1,62})$"
+    },
+    "IFayID": {
+      "type": "string",
+      "description": "Canonical FayID individual digital avatar identifier (Ed25519 Holder-of-Key).",
+      "pattern": "^ifay_[a-z2-7]{52}$"
+    },
+    "CoFayID": {
+      "type": "string",
+      "description": "Canonical FayID collective/role digital avatar identifier.",
+      "pattern": "^cofay_[a-z2-7]{52}$"
+    },
+    "OpaqueRef": {
+      "type": "string",
+      "description": "Privacy-preserving commitment handle anchoring natural-person quota and concave voting normalization without exposing HumanID.",
+      "pattern": "^gmcref_[a-z2-7]{16,104}$"
+    },
+    "FixedDecimal": {
+      "type": "string",
+      "description": "Deterministic fixed-point decimal string (6 fractional decimal places max).",
+      "pattern": "^-?[0-9]+(\\.[0-9]{1,6})?$"
+    },
+    "OwnerRef": {
+      "type": "object",
+      "description": "Offline-verifiable single-layer owner reference. Only HumanID or OrganizationID may own a coFay; iFay and coFay are forbidden as owners.",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["human", "organization"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "human" } }
+          },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/HumanID" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "organization" } }
+          },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/OrganizationID" } }
+          }
+        }
+      ]
+    },
+    "CoFayOwnershipRecord": {
+      "type": "object",
+      "description": "Flat single-layer coFay ownership record. Excludes any ancestor path or ownership depth.",
+      "additionalProperties": false,
+      "required": ["cofayId", "owner"],
+      "properties": {
+        "cofayId": {
+          "$ref": "#/$defs/CoFayID"
+        },
+        "owner": {
+          "$ref": "#/$defs/OwnerRef"
+        },
+        "delegates": {
+          "type": "array",
+          "description": "Active operational Delegate VerifyingKey fingerprints or delegated iFay managers (granting operational authority without altering ownership).",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "NestedMeritChainRecord": {
+      "type": "object",
+      "description": "Derived Nested Merit Chain record in Chain_Registry. Enforces unbounded protocol depth, optional 1:1 OrganizationID projection, and natural-person Stewards.",
+      "additionalProperties": false,
+      "required": [
+        "chainId",
+        "parentId",
+        "domain",
+        "derivationPath",
+        "stewards",
+        "initiationChannel",
+        "createdAt"
+      ],
+      "properties": {
+        "chainId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "derivationPath": {
+          "type": "array",
+          "description": "Ordered path starting at gmc-base with no fixed protocol-level maximum depth.",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "organizationId": {
+          "$ref": "#/$defs/OrganizationID"
+        },
+        "stewards": {
+          "type": "array",
+          "description": "Accountable natural-person Stewards (HumanID required; iFay and coFay forbidden).",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/HumanID"
+          }
+        },
+        "managers": {
+          "type": "array",
+          "description": "Delegated operational chain managers (iFay avatars); orthogonal to Steward accountability.",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/IFayID"
+          }
+        },
+        "initiationChannel": {
+          "type": "string",
+          "enum": ["Vote", "Steward", "InstitutionApplication"]
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "BootstrapMeritBatch": {
+      "type": "object",
+      "description": "Cold-start one-way bootstrap MeriToken batch. Enforces B_i = 0 (zero floor contribution, never raising minMerit), >= 2x faster decay, and per-opaqueRef caps.",
+      "additionalProperties": false,
+      "required": [
+        "batchId",
+        "origin",
+        "opaqueRef",
+        "amount",
+        "b",
+        "decayMultiplier",
+        "influenceDurationSecs",
+        "acquiredAt",
+        "sourceChainId"
+      ],
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "type": "string",
+          "const": "BootstrapPurchased"
+        },
+        "opaqueRef": {
+          "$ref": "#/$defs/OpaqueRef"
+        },
+        "amount": {
+          "$ref": "#/$defs/FixedDecimal"
+        },
+        "b": {
+          "type": "string",
+          "description": "Immutable protocol invariant: cold-start bootstrap batches contribute strictly 0 to permanent floor minMerit.",
+          "const": "0"
+        },
+        "decayMultiplier": {
+          "type": "integer",
+          "description": "Accelerated decay factor relative to earned contribution baseline (>= 2; conservative preset = 3, neutral preset = 2).",
+          "minimum": 2
+        },
+        "influenceDurationSecs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "acquiredAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sourceChainId": {
+          "type": "string",
+          "const": "gmc-base"
+        }
+      }
+    },
+    "GovernanceVoterSlice": {
+      "type": "object",
+      "description": "Per-iFay governance voting input aggregated by opaqueRef prior to concave square-root weighting.",
+      "additionalProperties": false,
+      "required": ["ifayId", "opaqueRef", "effectiveMerit"],
+      "properties": {
+        "ifayId": {
+          "$ref": "#/$defs/IFayID"
+        },
+        "opaqueRef": {
+          "$ref": "#/$defs/OpaqueRef"
+        },
+        "effectiveMerit": {
+          "$ref": "#/$defs/FixedDecimal"
+        }
+      }
+    }
+  }
+}

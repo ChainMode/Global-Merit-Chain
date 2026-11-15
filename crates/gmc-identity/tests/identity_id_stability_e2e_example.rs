@@ -23,6 +23,7 @@
 //! The rotation history must reflect **both** rotations (`rotation_count == 2`), chaining
 //! `key0 → key1` then `key1 → key2`.
 
+use gmc_core::types::Timestamp;
 use gmc_identity::error::IdentityError;
 use gmc_identity::identity_service::IdentityService;
 use gmc_identity::ownership::OwnershipRegistry;
@@ -30,13 +31,14 @@ use gmc_identity::pocket::PocketBinding;
 use gmc_identity::recovery::RecoveryService;
 use gmc_identity::scheme::SchemeRegistry;
 use gmc_identity::types::{IdentityKind, SchemeTag, VerifyingKey};
-use gmc_core::types::Timestamp;
 
 /// A valid 32-byte ed25519 verifying key whose bytes vary with `seed` (mirrors the
 /// in-crate recovery/identity test helpers so derivation and rotation succeed under the
 /// default registry, and distinct seeds give distinct valid keys).
 fn vk(seed: u8) -> VerifyingKey {
-    let bytes: Vec<u8> = (0..32u8).map(|i| i.wrapping_mul(7).wrapping_add(seed)).collect();
+    let bytes: Vec<u8> = (0..32u8)
+        .map(|i| i.wrapping_mul(7).wrapping_add(seed))
+        .collect();
     VerifyingKey::new(bytes)
 }
 
@@ -161,44 +163,38 @@ fn identity_id_pocket_key_and_owner_are_invariant_across_create_rotate_recover()
 /// owner's own `id` / `pocket_key`. This isolates the "a key change leaves ownership
 /// relationships intact" half of Requirement 11.2 on a real two-node tree.
 #[test]
-fn rotating_owner_key_leaves_cofay_ownership_and_owner_pocket_intact() {
+fn rotating_cofay_key_leaves_single_layer_ownership_and_pocket_intact() {
+    use gmc_identity::ownership::{OwnerKind, OwnerRef};
     let registry = SchemeRegistry::default();
     let mut ownership = OwnershipRegistry::new();
     let mut binding = PocketBinding::new();
     let mut svc = IdentityService::new();
     let mut recovery = RecoveryService::new();
 
-    // Create the owner iFay (key0) and a coFay attached beneath it.
-    let owner = svc
-        .create_ifay(
+    let org_owner = OwnerRef::new("org_ifay-foundation", OwnerKind::Organization);
+    let cofay = svc
+        .create_cofay(
             &registry,
             &mut ownership,
             &mut binding,
             &SchemeTag::ed25519(),
-            &vk(0),
-            Timestamp::from_secs(1),
+            &org_owner,
+            &vk(5),
+            Timestamp::from_secs(2),
         )
-        .expect("valid owner iFay");
-    let cofay = svc
-        .create_cofay(&registry, &mut ownership, &mut binding, &owner, &vk(5), Timestamp::from_secs(2))
-        .expect("owner exists, no cycle, depth ok");
+        .expect("single-layer org owner accepted");
 
-    // Snapshot the owner's id-keyed facts and the coFay's ownership edge.
-    let owner_id_snapshot = owner.clone();
-    let owner_pocket_snapshot = binding.pocket_key(&owner);
+    let cofay_id_snapshot = cofay.clone();
+    let cofay_pocket_snapshot = binding.pocket_key(&cofay);
     let cofay_owner_snapshot = ownership.owner_of(&cofay).cloned();
-    assert_eq!(cofay_owner_snapshot, Some(owner.clone()));
+    assert_eq!(cofay_owner_snapshot, Some(org_owner));
 
-    // Rotate the OWNER's active key key0 -> key1.
     recovery
-        .rotate_key(&mut svc, &registry, &owner, &vk(1), Timestamp::from_secs(3))
+        .rotate_key(&mut svc, &registry, &cofay, &vk(6), Timestamp::from_secs(3))
         .expect("valid new key");
-    assert_eq!(svc.get(&owner).unwrap().active_key, vk(1));
+    assert_eq!(svc.get(&cofay).unwrap().active_key, vk(6));
 
-    // The owner's id and pocket key are unchanged, and the coFay still points at the
-    // same owner id — the key change disturbed no relationship (Requirement 11.2).
-    assert_eq!(svc.get(&owner).unwrap().id, owner_id_snapshot);
-    assert_eq!(binding.pocket_key(&owner), owner_pocket_snapshot);
+    assert_eq!(svc.get(&cofay).unwrap().id, cofay_id_snapshot);
+    assert_eq!(binding.pocket_key(&cofay), cofay_pocket_snapshot);
     assert_eq!(ownership.owner_of(&cofay).cloned(), cofay_owner_snapshot);
-    assert_eq!(binding.pocket_key(&cofay), Some(cofay.to_fay_id()));
 }

@@ -98,3 +98,7 @@ pub mod device;
 /// `Recovery_Service` — key rotation and guardian M-of-N social recovery, keeping the
 /// `IdentityId` invariant.
 pub mod recovery;
+
+/// `FayID` canonical `<prefix>_<base32>` interoperability, `OpaqueRef` privacy guard,
+/// and monotonic subkey `RevocationRegistry`.
+pub mod fayid_interop;

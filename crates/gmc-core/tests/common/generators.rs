@@ -187,9 +187,7 @@ pub fn dimension_weights_arbitrary() -> impl Strategy<Value = DimensionWeights> 
             subsequence(Dimension::ALL.to_vec(), n..=n),
             proptest::collection::vec(ratio(), n),
         )
-            .prop_map(|(dims, ratios)| {
-                DimensionWeights::from_entries(dims.into_iter().zip(ratios))
-            })
+            .prop_map(|(dims, ratios)| DimensionWeights::from_entries(dims.into_iter().zip(ratios)))
     })
 }
 
@@ -291,8 +289,8 @@ pub struct MintOp {
 
 /// A sequence of `0..=max_len` interleaved mint requests across multiple chains.
 pub fn interleaved_mint_sequence(max_len: usize) -> impl Strategy<Value = Vec<MintOp>> {
-    let op = (chain_id(), mint_amount_any())
-        .prop_map(|(chain_id, amount)| MintOp { chain_id, amount });
+    let op =
+        (chain_id(), mint_amount_any()).prop_map(|(chain_id, amount)| MintOp { chain_id, amount });
     proptest::collection::vec(op, 0..=max_len)
 }
 

@@ -35,10 +35,10 @@ use proptest::prelude::*;
 use std::collections::BTreeSet;
 
 use gmc_identity::error::IdentityError;
+use gmc_identity::identity_service::IdentityService;
 use gmc_identity::ownership::OwnershipRegistry;
 use gmc_identity::pocket::PocketBinding;
 use gmc_identity::recovery::RecoveryService;
-use gmc_identity::identity_service::IdentityService;
 use gmc_identity::scheme::SchemeRegistry;
 use gmc_identity::types::{SchemeTag, Timestamp, VerifyingKey};
 

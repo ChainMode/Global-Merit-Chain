@@ -26,7 +26,11 @@ use gmc_identity::types::DeviceType;
 #[test]
 fn six_valid_device_types_are_accepted_and_round_trip() {
     // The enum lists exactly six device types, all distinct.
-    assert_eq!(DeviceType::ALL.len(), 6, "exactly six prescribed device types");
+    assert_eq!(
+        DeviceType::ALL.len(),
+        6,
+        "exactly six prescribed device types"
+    );
     for (i, a) in DeviceType::ALL.iter().enumerate() {
         for b in &DeviceType::ALL[i + 1..] {
             assert_ne!(a, b, "DeviceType::ALL variants must be distinct");

@@ -352,8 +352,11 @@ impl EvaluationMechanismSlot {
     ) -> GmcResult<()> {
         // Build-and-validate first; `?` returns before any mutation on invalid input,
         // so a rejected update cannot disturb the previously stored valid config.
-        let next =
-            EvaluationMechanism::new(acquisition_modes, consensus_threshold, exclude_high_intimacy)?;
+        let next = EvaluationMechanism::new(
+            acquisition_modes,
+            consensus_threshold,
+            exclude_high_intimacy,
+        )?;
         self.current = Some(next);
         Ok(())
     }
@@ -441,8 +444,11 @@ impl EvaluationMechanismSlot {
     ) -> GmcResult<MechanismChangeReceipt> {
         // Step 1: validate the proposal first. `?` returns before any mutation on an
         // invalid config, so an invalid proposal cannot disturb the stored config.
-        let next =
-            EvaluationMechanism::new(acquisition_modes, consensus_threshold, exclude_high_intimacy)?;
+        let next = EvaluationMechanism::new(
+            acquisition_modes,
+            consensus_threshold,
+            exclude_high_intimacy,
+        )?;
         // Step 2: apply the governance gate (which itself mutates only on success).
         self.propose_change(next, decision)
     }
@@ -461,12 +467,9 @@ mod tests {
 
     #[test]
     fn accepts_single_mode_and_in_range_threshold() {
-        let mech = EvaluationMechanism::new(
-            [AcquisitionMode::ObjectiveMetering],
-            ratio("0.66"),
-            true,
-        )
-        .expect("valid config should be accepted");
+        let mech =
+            EvaluationMechanism::new([AcquisitionMode::ObjectiveMetering], ratio("0.66"), true)
+                .expect("valid config should be accepted");
         assert_eq!(mech.acquisition_mode_count(), 1);
         assert!(mech.has_acquisition_mode(AcquisitionMode::ObjectiveMetering));
         assert!(!mech.has_acquisition_mode(AcquisitionMode::BountyTask));
@@ -476,7 +479,10 @@ mod tests {
     #[test]
     fn accepts_combination_of_modes() {
         let mech = EvaluationMechanism::new(
-            [AcquisitionMode::ObjectiveMetering, AcquisitionMode::BountyTask],
+            [
+                AcquisitionMode::ObjectiveMetering,
+                AcquisitionMode::BountyTask,
+            ],
             ratio("0.5"),
             true,
         )
@@ -484,7 +490,10 @@ mod tests {
         assert_eq!(mech.acquisition_mode_count(), 2);
         assert_eq!(
             mech.acquisition_modes().collect::<Vec<_>>(),
-            vec![AcquisitionMode::ObjectiveMetering, AcquisitionMode::BountyTask]
+            vec![
+                AcquisitionMode::ObjectiveMetering,
+                AcquisitionMode::BountyTask
+            ]
         );
     }
 
@@ -612,10 +621,7 @@ mod tests {
         slot.try_set([AcquisitionMode::ObjectiveMetering], ratio("0.66"), true)
             .expect("valid config should be stored");
         assert!(slot.is_defined());
-        assert_eq!(
-            slot.current().unwrap().consensus_threshold(),
-            ratio("0.66")
-        );
+        assert_eq!(slot.current().unwrap().consensus_threshold(), ratio("0.66"));
     }
 
     #[test]
@@ -655,7 +661,10 @@ mod tests {
             EvaluationMechanism::new([AcquisitionMode::BountyTask], ratio("0.7"), true).unwrap(),
         );
         slot.try_set(
-            [AcquisitionMode::ObjectiveMetering, AcquisitionMode::BountyTask],
+            [
+                AcquisitionMode::ObjectiveMetering,
+                AcquisitionMode::BountyTask,
+            ],
             ratio("0.9"),
             false,
         )
@@ -689,7 +698,10 @@ mod tests {
             EvaluationMechanism::new([AcquisitionMode::BountyTask], ratio("0.7"), true).unwrap(),
         );
         let proposal = EvaluationMechanism::new(
-            [AcquisitionMode::ObjectiveMetering, AcquisitionMode::BountyTask],
+            [
+                AcquisitionMode::ObjectiveMetering,
+                AcquisitionMode::BountyTask,
+            ],
             ratio("0.85"),
             false,
         )
@@ -720,12 +732,9 @@ mod tests {
             EvaluationMechanism::new([AcquisitionMode::BountyTask], ratio("0.7"), true).unwrap();
         let mut slot = EvaluationMechanismSlot::with_config(original.clone());
 
-        let proposal = EvaluationMechanism::new(
-            [AcquisitionMode::ObjectiveMetering],
-            ratio("0.95"),
-            false,
-        )
-        .unwrap();
+        let proposal =
+            EvaluationMechanism::new([AcquisitionMode::ObjectiveMetering], ratio("0.95"), false)
+                .unwrap();
 
         let err = slot
             .propose_change(proposal, GovernanceDecision::ThresholdNotReached)
