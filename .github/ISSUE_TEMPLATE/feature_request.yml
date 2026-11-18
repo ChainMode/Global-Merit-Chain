@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose an improvement or addition to Global-Merit-Chain.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Global-Merit-Chain. For open-ended questions and ideas, please use [iFay Discussions](https://github.com/ChainMode/iFay/discussions) first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem would this solve, and for whom?
+      placeholder: I would like to ... because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you would like. Reference affected sections, schemas, or files where possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you have considered and why they are less suitable.
+    validations:
+      required: false
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      description: Would this change existing wire formats, schemas, or documented behavior? Describe any migration needed.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's [Code of Conduct](https://github.com/ChainMode/Global-Merit-Chain/blob/main/CODE_OF_CONDUCT.md).
+          required: true

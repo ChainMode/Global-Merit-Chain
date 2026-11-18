@@ -28,10 +28,8 @@ Please **do NOT open a public GitHub Issue or Pull Request** for undisclosed sec
 
 1. **Primary Channel — GitHub Private Vulnerability Reporting (Recommended)**:
    Submit a confidential advisory directly via **GitHub Security Advisories** on [`ChainMode/Global-Merit-Chain`](https://github.com/ChainMode/Global-Merit-Chain/security/advisories/new).
-2. **Fallback Email Channels**:
-   If GitHub Private Vulnerability Reporting is unavailable, email full reproduction details (affected crate/commit, minimal PoC or test vector, and impact assessment) to:
-   - **`jah.g@ifay.ai`**
-   - **`hello@meritora.org`**
+2. **Fallback Email Channel**:
+   If GitHub Private Vulnerability Reporting is unavailable, email full reproduction details (affected crate/commit, minimal PoC or test vector, and impact assessment) to **`jah.g@ifay.ai`**.
 
 ## Response Targets
 

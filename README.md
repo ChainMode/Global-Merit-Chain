@@ -1,5 +1,13 @@
 # Global Merit Chain（GMChain / 公誉链）
 
+[![Docs CI](https://github.com/ChainMode/Global-Merit-Chain/actions/workflows/docs-ci.yml/badge.svg)](https://github.com/ChainMode/Global-Merit-Chain/actions/workflows/docs-ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Docs: CC BY 4.0](https://img.shields.io/badge/Docs-CC%20BY%204.0-lightgrey.svg)](./LICENSE-DOCS)
+[![Website: ifay.ai](https://img.shields.io/badge/Website-ifay.ai-blue)](https://ifay.ai)
+[![Meritora](https://img.shields.io/badge/Meritora-meritora--site.vercel.app-0f766e)](https://meritora-site.vercel.app)
+
+**GMChain** (**Global Merit Chain** / **公誉链**) is the zero-fee, strictly non-monetary social contribution ledger and BFT governance infrastructure of the **iFay** ecosystem, where **MeriToken** (`美誉值`, unit `μ` / `Merit Unit`) measures real societal contribution and is never cashable, speculative, or transferable.
+
 **GMChain（公誉链）** 是 iFay 生态系统的社会贡献度量与治理基础设施。GMChain 并非金融交易市场：**MeriToken（美誉值，最小计量单位 `μ` / `MU`）严格非货币**——不可套现、不可投机、不可转让、不可与法币双向兑换，且节点与验证者出块、投票均不产生任何 `MeriToken` 奖励、交易手续费或质押罚没（`NODE_TRANSACTION_FEE = 0`、`NODE_BLOCK_REWARD = 0`、`VALIDATOR_REWARD = 0`、初始美誉值基线 `B_i = 0`）。长期话语权完全由持续真实的社会贡献决定，并通过指数批次衰减与历史贡献底值（`minMerit`）保持动态平衡。
 
 ## 工作区架构（Workspace Crates）
@@ -45,7 +53,7 @@ cargo run -p gmc-node -- workbench --data-dir ./meritora-desktop-data --addr 127
 - **Linux**：运行 `./desktop/meritora-desktop.sh`
 - **Windows**：双击或运行 `desktop\Meritora-Desktop.bat`
 
-也可将本机节点绑定在 `127.0.0.1:8545` 以供浏览器端 `https://meritora.org` 在线工作台直连查询：
+也可将本机节点绑定在 `127.0.0.1:8545` 以供浏览器端 [https://meritora-site.vercel.app](https://meritora-site.vercel.app) 在线工作台直连查询：
 
 ```bash
 cargo run -p gmc-node -- workbench --data-dir ./meritora-desktop-data --addr 127.0.0.1:8545

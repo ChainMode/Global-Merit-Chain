@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussions
+    url: https://github.com/ChainMode/iFay/discussions
+    about: Ask questions, share ideas, and discuss the iFay ecosystem with the community.
+  - name: Project website
+    url: https://ifay.ai
+    about: Overview of the iFay ecosystem and its protocols.
