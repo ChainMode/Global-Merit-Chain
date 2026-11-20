@@ -16,4 +16,5 @@ pub mod network;
 pub mod rpc;
 pub mod runtime;
 pub mod store;
+pub mod testnet;
 pub mod workbench;

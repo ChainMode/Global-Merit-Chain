@@ -484,6 +484,7 @@ pub struct NodeRuntime {
     committed_qcs: Vec<QuorumCertificate>,
     equivocations: Vec<EquivocationEvidence>,
     local_committee_seeds: Vec<(Zeroizing<[u8; ED25519_SEED_LEN]>, String)>,
+    testnet: crate::testnet::PersistedTestnetState,
     batch_verifier: Box<dyn BatchProofVerifier>,
 }
 
@@ -659,6 +660,7 @@ impl NodeRuntime {
             committed_qcs: persisted.consensus.committed_qcs,
             equivocations: persisted.consensus.equivocations,
             local_committee_seeds,
+            testnet: persisted.testnet,
             batch_verifier: Box::new(Sha256BatchVerifier),
         };
 
@@ -694,6 +696,26 @@ impl NodeRuntime {
 
     pub fn relationships(&self) -> &RelationshipGraph {
         &self.relationships
+    }
+
+    pub(crate) fn relationships_mut(&mut self) -> &mut RelationshipGraph {
+        &mut self.relationships
+    }
+
+    pub fn testnet_state(&self) -> &crate::testnet::PersistedTestnetState {
+        &self.testnet
+    }
+
+    pub(crate) fn testnet_state_mut(&mut self) -> &mut crate::testnet::PersistedTestnetState {
+        &mut self.testnet
+    }
+
+    pub(crate) fn anchor_l1_vote_result(&mut self, record: VoteResultRecord) {
+        self.l1.store_vote_result(record);
+    }
+
+    pub(crate) fn persist_testnet_wal(&mut self, event_tag: &str) -> NodeResult<[u8; 32]> {
+        self.persist_wal(event_tag)
     }
 
     pub fn penalties(&self) -> &PenaltyEngine {
@@ -1287,6 +1309,7 @@ impl NodeRuntime {
             settled_batches: self.settled_batches.clone(),
             l2: self.l2.clone(),
             sealed_batches: self.sealed_batches.clone(),
+            testnet: self.testnet.clone(),
         };
         sandbox.execute_proposal(
             transactions,
@@ -1347,6 +1370,7 @@ impl NodeRuntime {
             settled_batches: self.settled_batches.clone(),
             l2: self.l2.clone(),
             sealed_batches: self.sealed_batches.clone(),
+            testnet: self.testnet.clone(),
         };
         let (applied_ops, settled_batch_seq, settled_records) = sandbox.execute_proposal(
             &proposal.transactions,
@@ -1593,6 +1617,7 @@ impl NodeRuntime {
                 committed_qcs: self.committed_qcs.clone(),
                 equivocations: self.equivocations.clone(),
             },
+            testnet: self.testnet.clone(),
         }
     }
 
@@ -1616,6 +1641,7 @@ struct ExecutionSandbox {
     settled_batches: Vec<SettledBatchCommitment>,
     l2: L2Rollup,
     sealed_batches: Vec<PersistedSealedBatch>,
+    testnet: crate::testnet::PersistedTestnetState,
 }
 
 impl ExecutionSandbox {
@@ -1844,6 +1870,7 @@ impl ExecutionSandbox {
             l1_records: PersistedL1State::from_l1(&self.l1, &self.settled_batches),
             l2_batches: PersistedL2State::from_l2(&self.l2, &self.sealed_batches),
             consensus: PersistedConsensusState::default(),
+            testnet: self.testnet.clone(),
         };
         compute_state_root(&persisted)
     }

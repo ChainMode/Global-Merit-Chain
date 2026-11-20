@@ -20,8 +20,25 @@
 
 其他仓库目录：
 - `docs/`：多语言设计蓝图与协议规范文档（`docs/zh-CN/blueprint/` 为中文权威基准）。
+- `scripts/`：一键公共测试网与实时 HTTP RPC / Explorer 启动套件（`./scripts/start-testnet.sh`，默认监听 `http://127.0.0.1:8546`）。
 - `desktop/`：`Meritora Desktop (Preview v0.2)` 跨平台本地启动器（macOS `.command` / Linux `.sh` / Windows `.bat`）。
 - `schema/` 与 `vectors/`：跨实现确定性一致性 JSON Schema 与标准测试向量。
+
+## 一键启动公共测试网套件（`start-testnet.sh` / `gmc-node testnet`）
+
+单条命令拉起预置 4 验证者两阶段 BFT 委员会、创世 `iFay` / `coFay` 席位、双边社交亲密度图谱（自动排除 `intimacy > 0.90` 亲友团反作弊过滤）、贡献任务悬赏与社区治理提案的实时测试网节点（默认绑定 `http://127.0.0.1:8546`，可直接与 `Meritora` 在线工作台 `/workbench` 联调）：
+
+```bash
+./scripts/start-testnet.sh
+# 或直接调用 gmc-node CLI：
+cargo run -p gmc-node -- testnet --data-dir ./testnet-data --addr 127.0.0.1:8546
+```
+
+实时 HTTP Explorer / Bounty / Governance REST 与 JSON-RPC 2.0 端点：
+- `GET /api/explorer?elapsed_days=0`（或 JSON-RPC `gmc_explorer`）：实时检视区块、`QuorumCertificate`、4 验证者状态及各主体随时间指数衰减的 `MeritPocket`（`μ` 与 `minMerit` 底值）；
+- `POST /api/bounties`（`gmc_publishBounty`）与 `POST /api/bounties/deliver`（`gmc_submitDeliverable`）：发布设定目标美誉值 `μ` 与衰减周期天数的任务悬赏并提交交付物；
+- `POST /api/bounties/vote`（`gmc_voteBounty`）：执行干系人加权投票，自动拦截高亲密度者（`intimacy > 0.90`）并在达成 `>= 2/3` 法定门槛时零手续费自动铸造带衰减期限的 `MeriToken (μ)` 批次、出块落盘；
+- `POST /api/proposals`（`gmc_createProposal`）与 `POST /api/proposals/vote`（`gmc_voteProposal`）：按参与者实时衰减后的 `MeriToken` 占比对社区治理提案加权投票并锚定 L1 结果。
 
 ## 构建与质量校验
 

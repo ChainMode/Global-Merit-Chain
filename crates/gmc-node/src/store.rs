@@ -46,6 +46,7 @@ use gmc_identity::types::{DeviceType, IdentityKind, SchemeTag, VerifyingKey};
 use crate::consensus::{EquivocationEvidence, QuorumCertificate, ValidatorInfo};
 use crate::crypto::register_ed25519_scheme;
 use crate::error::{NodeError, NodeResult};
+use crate::testnet::PersistedTestnetState;
 
 /// 4-byte magic header prefixing every WAL frame (`"GMCW"`).
 pub const WAL_FRAME_MAGIC: &[u8; 4] = b"GMCW";
@@ -90,6 +91,8 @@ pub struct PersistedNodeState {
     pub l2_batches: PersistedL2State,
     #[serde(default)]
     pub consensus: PersistedConsensusState,
+    #[serde(default)]
+    pub testnet: PersistedTestnetState,
 }
 
 impl PersistedNodeState {
@@ -111,6 +114,7 @@ impl PersistedNodeState {
                 &[],
             ),
             consensus: PersistedConsensusState::default(),
+            testnet: PersistedTestnetState::default(),
         }
     }
 }
@@ -1586,6 +1590,14 @@ pub fn compute_state_root(state: &PersistedNodeState) -> [u8; 32] {
         hash_str(&mut h, &sb.sha256_commitment_hex);
         hash_u64(&mut h, sb.submitted_at_secs);
         hash_str(&mut h, &sb.trigger);
+    }
+
+    // 7. Public Testnet Bounty & Governance State (only hashed when populated, preserving legacy baseline vectors)
+    if !state.testnet.is_empty() {
+        hash_bytes(&mut h, b"section:testnet");
+        if let Ok(testnet_bytes) = serde_json::to_vec(&state.testnet) {
+            hash_bytes(&mut h, &testnet_bytes);
+        }
     }
 
     h.finalize().into()

@@ -43,11 +43,13 @@ fn print_usage() {
            cluster-demo   Run multi-validator TCP BFT cluster showcase (quorum + equivocation)\n\
            serve          Run bounded local loopback HTTP/JSON-RPC control server\n\
            workbench      Launch Meritora Desktop graphical workbench & JSON-RPC on loopback\n\
+           testnet        Launch seeded 4-validator BFT Public Testnet + Explorer/RPC (`127.0.0.1:8546`)\n\
          \n\
          Options:\n\
            --data-dir <dir>       Node data directory (required)\n\
            --chain-id <id>        Chain identifier (default: {DEFAULT_CHAIN_ID})\n\
-           --addr <ip:port>       Loopback bind address (`127.0.0.1:0` for serve, `127.0.0.1:8787` for workbench)\n\
+           --addr <ip:port>       Bind address (`127.0.0.1:8546` for testnet, `127.0.0.1:8787` for workbench)\n\
+           --allow-public-bind    Explicitly allow non-loopback bind for `testnet`\n\
            --validators <n>       Validator count for `cluster-demo` (default: 4)\n\
            --timestamp <secs>     Explicit Unix timestamp in seconds\n\
            --max-requests <n>     Optional request count after which `serve`/`workbench` exits cleanly"
@@ -67,6 +69,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
     let mut validators: usize = 4;
     let mut timestamp_secs: u64 = 1_700_000_000;
     let mut max_requests: Option<usize> = None;
+    let mut allow_public_bind = false;
 
     let mut i = 1usize;
     while i < args.len() {
@@ -119,6 +122,9 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
                     val.parse()
                         .map_err(|_| NodeError::ConfigInvalid("invalid --max-requests".into()))?,
                 );
+            }
+            "--allow-public-bind" => {
+                allow_public_bind = true;
             }
             "--help" | "-h" => {
                 print_usage();
@@ -226,6 +232,49 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
                     "listening_addr": handle.local_addr().to_string(),
                     "validator_count": 4,
                     "quorum_threshold": 3,
+                })
+            );
+            if max_requests.is_some() {
+                while !handle.is_stopped() {
+                    thread::sleep(Duration::from_millis(10));
+                }
+            } else {
+                loop {
+                    thread::sleep(Duration::from_secs(3600));
+                }
+            }
+            let _ = handle.shutdown()?;
+            Ok(())
+        }
+        "testnet" => {
+            let bind_addr = addr.unwrap_or_else(|| "127.0.0.1:8546".to_string());
+            config.allow_non_loopback = allow_public_bind;
+            config.control_addr = Some(bind_addr.clone());
+            let node = NodeRuntime::open_public_testnet(config)?;
+            let status = node.status();
+            let bounty_count = node.testnet_state().bounties.len();
+            let proposal_count = node.testnet_state().proposals.len();
+            let shared = Arc::new(Mutex::new(node));
+            let handle =
+                start_control_server(shared, &bind_addr, allow_public_bind, max_requests)?;
+            let url = format!("http://{}", handle.local_addr());
+            println!(
+                "{}",
+                json!({
+                    "testnet": "ready",
+                    "chain_id": status.chain_id,
+                    "url": url,
+                    "rpc_url": format!("{url}/rpc"),
+                    "explorer_url": format!("{url}/api/explorer"),
+                    "bounties_url": format!("{url}/api/bounties"),
+                    "proposals_url": format!("{url}/api/proposals"),
+                    "listening_addr": handle.local_addr().to_string(),
+                    "block_height": status.block_height,
+                    "state_root_hex": status.state_root_hex,
+                    "validator_count": status.validator_count,
+                    "quorum_threshold": status.quorum_threshold,
+                    "seeded_bounties": bounty_count,
+                    "seeded_proposals": proposal_count,
                 })
             );
             if max_requests.is_some() {

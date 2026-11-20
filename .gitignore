@@ -1,6 +1,9 @@
 # Rust / Cargo build artifacts
 /target
 **/*.rs.bk
+/testnet-data/
+/meritora-desktop-data/
+/tmp-*/
 
 # macOS
 .DS_Store

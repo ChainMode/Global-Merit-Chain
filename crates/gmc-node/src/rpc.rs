@@ -25,6 +25,10 @@ use gmc_identity::identity_core::Applied;
 
 use crate::error::{NodeError, NodeResult};
 use crate::runtime::{NodeRuntime, WireSignedOperation};
+use crate::testnet::{
+    CreateProposalRequest, ExplorerQueryParams, PublishBountyRequest, SubmitDeliverableRequest,
+    VoteBountyRequest, VoteProposalRequest,
+};
 use crate::workbench::MERITORA_DESKTOP_HTML;
 
 /// Hard ceiling (`256 KiB`) on incoming HTTP/JSON-RPC request bodies.
@@ -413,7 +417,12 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
         return;
     }
 
-    match (req.method.as_str(), req.path.as_str()) {
+    let (route_path, query_str) = match req.path.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (req.path.as_str(), ""),
+    };
+
+    match (req.method.as_str(), route_path) {
         ("GET", "/") | ("GET", "/workbench") => {
             write_html_response(stream, MERITORA_DESKTOP_HTML);
         }
@@ -432,6 +441,229 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
             };
             let st = guard.status();
             write_json_response(stream, 200, "OK", &serde_json::to_value(st).unwrap());
+        }
+        ("GET", "/api/explorer") | ("GET", "/api/pockets") => {
+            let params = parse_explorer_query(query_str);
+            let Ok(guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            write_json_response(stream, 200, "OK", &guard.explorer_snapshot(&params));
+        }
+        ("GET", "/api/bounties") => {
+            let Ok(guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            write_json_response(
+                stream,
+                200,
+                "OK",
+                &json!({
+                    "bounties": guard.testnet_state().bounties,
+                    "state_root_hex": guard.state_root_hex(),
+                }),
+            );
+        }
+        ("POST", "/api/bounties") => {
+            let parsed: PublishBountyRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_bounty_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.publish_bounty(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
+        }
+        ("POST", "/api/bounties/deliver") => {
+            let parsed: SubmitDeliverableRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_deliverable_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.submit_bounty_deliverable(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
+        }
+        ("POST", "/api/bounties/vote") => {
+            let parsed: VoteBountyRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_bounty_vote_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.vote_bounty(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => {
+                    let msg = e.to_string();
+                    let status = if msg.contains("HIGH_INTIMACY_EXCLUDED")
+                        || msg.contains("SELF_VOTE_FORBIDDEN")
+                    {
+                        403
+                    } else {
+                        400
+                    };
+                    let status_text = if status == 403 {
+                        "Forbidden"
+                    } else {
+                        "Bad Request"
+                    };
+                    write_json_response(stream, status, status_text, &json!({ "error": msg }));
+                }
+            }
+        }
+        ("GET", "/api/proposals") => {
+            let Ok(guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            write_json_response(
+                stream,
+                200,
+                "OK",
+                &json!({
+                    "proposals": guard.testnet_state().proposals,
+                    "state_root_hex": guard.state_root_hex(),
+                }),
+            );
+        }
+        ("POST", "/api/proposals") => {
+            let parsed: CreateProposalRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_proposal_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.create_proposal(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
+        }
+        ("POST", "/api/proposals/vote") => {
+            let parsed: VoteProposalRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_proposal_vote_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.vote_proposal(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
         }
         ("POST", "/submit_operation") => {
             let env: SubmitOpEnvelope = match serde_json::from_slice(&req.body) {
@@ -724,10 +956,183 @@ fn dispatch_json_rpc(req: JsonRpcRequest, runtime: &Arc<Mutex<NodeRuntime>>) -> 
                 }),
             }
         }
+        "gmc_explorer" | "gmc_pockets" => {
+            let params: ExplorerQueryParams =
+                serde_json::from_value(req.params).unwrap_or_default();
+            let Ok(guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": guard.explorer_snapshot(&params)
+            })
+        }
+        "gmc_publishBounty" => {
+            let parsed: PublishBountyRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.publish_bounty(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32004, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_submitDeliverable" => {
+            let parsed: SubmitDeliverableRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.submit_bounty_deliverable(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32005, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_voteBounty" => {
+            let parsed: VoteBountyRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.vote_bounty(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32006, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_createProposal" => {
+            let parsed: CreateProposalRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.create_proposal(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32007, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_voteProposal" => {
+            let parsed: VoteProposalRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.vote_proposal(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32008, "message": e.to_string() }
+                }),
+            }
+        }
         other => json!({
             "jsonrpc": "2.0",
             "id": id,
             "error": { "code": -32601, "message": format!("unknown method '{other}'") }
         }),
     }
+}
+
+fn parse_explorer_query(query: &str) -> ExplorerQueryParams {
+    let mut out = ExplorerQueryParams::default();
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            match k.trim() {
+                "elapsed_days" => {
+                    if let Ok(d) = v.trim().parse::<u64>() {
+                        out.elapsed_days = d;
+                    }
+                }
+                "offset_secs" => {
+                    if let Ok(s) = v.trim().parse::<u64>() {
+                        out.offset_secs = s;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
