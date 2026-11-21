@@ -58,7 +58,8 @@ fn http_json(addr: SocketAddr, method: &str, path: &str, body: Option<&Value>) -
         .unwrap()
         .parse()
         .unwrap();
-    let parsed: Value = serde_json::from_str(raw_body).unwrap_or_else(|_| json!({ "raw": raw_body }));
+    let parsed: Value =
+        serde_json::from_str(raw_body).unwrap_or_else(|_| json!({ "raw": raw_body }));
     (code, parsed)
 }
 
@@ -66,7 +67,8 @@ fn http_json(addr: SocketAddr, method: &str, path: &str, body: Option<&Value>) -
 fn public_testnet_full_bounty_intimacy_mint_and_governance_loop() {
     let data_dir = unique_temp_dir("full-loop");
     let config = NodeConfig::new(&data_dir);
-    let node = NodeRuntime::open_public_testnet(config.clone()).expect("open seeded public testnet");
+    let node =
+        NodeRuntime::open_public_testnet(config.clone()).expect("open seeded public testnet");
 
     let shared = Arc::new(Mutex::new(node));
     let handle = start_control_server(Arc::clone(&shared), "127.0.0.1:0", false, None)
@@ -96,7 +98,10 @@ fn public_testnet_full_bounty_intimacy_mint_and_governance_loop() {
         .iter()
         .find(|p| p["kind"] == "cofay")
         .expect("seeded coFay seat");
-    assert!(civic_cofay["fay_id"].as_str().unwrap().starts_with("cofay_"));
+    assert!(civic_cofay["fay_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("cofay_"));
 
     let (_, explorer_90d) = http_json(addr, "GET", "/api/explorer?elapsed_days=90", None);
     let alice_raw_90d = explorer_90d["pockets"]
@@ -292,6 +297,243 @@ fn public_testnet_full_bounty_intimacy_mint_and_governance_loop() {
     assert_eq!(reopened.state_root_hex(), root_before_shutdown);
     assert_eq!(reopened.testnet_state().bounties.len(), 2);
     assert_eq!(reopened.testnet_state().proposals.len(), 3);
+
+    let _ = std::fs::remove_dir_all(&data_dir);
+}
+
+#[test]
+fn external_fayger_registration_contribution_and_priority_consumption_loop() {
+    let data_dir = unique_temp_dir("fayger-bridge");
+    let config = NodeConfig::new(&data_dir);
+    let node =
+        NodeRuntime::open_public_testnet(config.clone()).expect("open seeded public testnet");
+
+    let shared = Arc::new(Mutex::new(node));
+    let handle = start_control_server(Arc::clone(&shared), "127.0.0.1:0", false, None)
+        .expect("start loopback RPC");
+    let addr = handle.local_addr();
+
+    // 1. Register external FayGer iFay via JSON-RPC `gmc_registerExternalFay`
+    let ext_fay_id = "fayger_ifay_user_001";
+    let (reg_code, reg_rpc) = http_json(
+        addr,
+        "POST",
+        "/rpc",
+        Some(&json!({
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "gmc_registerExternalFay",
+            "params": {
+                "fay_id": ext_fay_id,
+                "display_name": "Jah's Personal iFay",
+                "kind": "ifay",
+                "role_label": "FayGer Sovereign Assistant (iFay)"
+            }
+        })),
+    );
+    assert_eq!(reg_code, 200);
+    let reg_res = &reg_rpc["result"];
+    assert_eq!(reg_res["ok"], true);
+    assert_eq!(reg_res["already_registered"], false);
+    assert_eq!(reg_res["fay_id"], ext_fay_id);
+    assert!(reg_res["canonical_fayid"]
+        .as_str()
+        .unwrap()
+        .starts_with("ifay_"));
+    assert_eq!(reg_res["cur_merit_mu"], "5");
+    assert_eq!(reg_res["cur_merit_raw"], 5_000_000i64);
+    assert_eq!(reg_res["min_merit_floor_mu"], "2.718281");
+    assert_eq!(reg_res["min_merit_floor_raw"], 2_718_281i64);
+    assert_eq!(reg_res["consumable_merit_mu"], "2.281719");
+    assert_eq!(reg_res["consumable_merit_raw"], 2_281_719i64);
+
+    // Re-registering the same external FayID is idempotent (`already_registered: true`)
+    let (dup_code, dup_res) = http_json(
+        addr,
+        "POST",
+        "/api/fays/register",
+        Some(&json!({
+            "fay_id": ext_fay_id,
+            "display_name": "Jah's Personal iFay"
+        })),
+    );
+    assert_eq!(dup_code, 200);
+    assert_eq!(dup_res["already_registered"], true);
+    assert_eq!(dup_res["cur_merit_raw"], 5_000_000i64);
+
+    // 2. Record contribution (+40 μ) via JSON-RPC `gmc_recordContribution`
+    let (add_code, add_rpc) = http_json(
+        addr,
+        "POST",
+        "/rpc",
+        Some(&json!({
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "gmc_recordContribution",
+            "params": {
+                "fay_id": ext_fay_id,
+                "title": "Open-Source FayGer Multi-Agent Consensus Bridge",
+                "domain_chain_id": "gmc-open-science",
+                "amount_mu": 40,
+                "horizon_days": 90,
+                "summary": "Delivered deterministic fixed-point RPC integration."
+            }
+        })),
+    );
+    assert_eq!(add_code, 200);
+    let add_res = &add_rpc["result"];
+    assert_eq!(add_res["ok"], true);
+    assert_eq!(add_res["fay_id"], ext_fay_id);
+    assert_eq!(add_res["minted_mu"], "40");
+    assert_eq!(add_res["cur_merit_mu"], "45");
+    assert_eq!(add_res["cur_merit_raw"], 45_000_000i64);
+    let floor_after_add_raw = add_res["min_merit_floor_raw"].as_i64().unwrap();
+    let consumable_after_add_raw = add_res["consumable_merit_raw"].as_i64().unwrap();
+    assert_eq!(
+        45_000_000i64 - floor_after_add_raw,
+        consumable_after_add_raw
+    );
+    assert!(
+        consumable_after_add_raw > 12_000_000i64,
+        "expected > 12 μ consumable, got {consumable_after_add_raw}"
+    );
+
+    // 3. Consume -12 μ for `voting_priority` on `prop-001` via `gmc_consumePriority`
+    let (cons_code, cons_rpc) = http_json(
+        addr,
+        "POST",
+        "/rpc",
+        Some(&json!({
+            "jsonrpc": "2.0",
+            "id": 103,
+            "method": "gmc_consumePriority",
+            "params": {
+                "fay_id": ext_fay_id,
+                "priority_kind": "voting_priority",
+                "amount_mu": 12,
+                "reason": "Expedite open-science benchmark governance review on prop-001",
+                "proposal_id": "prop-001",
+                "approve": true
+            }
+        })),
+    );
+    assert_eq!(cons_code, 200);
+    let cons_res = &cons_rpc["result"];
+    assert_eq!(cons_res["ok"], true);
+    assert_eq!(cons_res["fay_id"], ext_fay_id);
+    assert_eq!(cons_res["priority_kind"], "voting_priority");
+    assert_eq!(cons_res["consumed_mu"], "12");
+    assert_eq!(cons_res["consumed_mu_raw"], 12_000_000i64);
+
+    let before_cur_raw = cons_res["before_cur_merit_raw"].as_i64().unwrap();
+    let after_cur_raw = cons_res["after_cur_merit_raw"].as_i64().unwrap();
+    let min_floor_raw = cons_res["min_merit_floor_raw"].as_i64().unwrap();
+    assert_eq!(before_cur_raw, 45_000_000i64);
+    assert_eq!(after_cur_raw, before_cur_raw - 12_000_000i64);
+    assert_eq!(min_floor_raw, floor_after_add_raw);
+    assert_eq!(
+        cons_res["consumable_merit_raw"].as_i64().unwrap(),
+        consumable_after_add_raw - 12_000_000i64
+    );
+
+    // Also test REST `/api/merit/consume` with decimal string `"1.5"`
+    let (rest_cons_code, rest_cons_res) = http_json(
+        addr,
+        "POST",
+        "/api/merit/consume",
+        Some(&json!({
+            "fay_id": ext_fay_id,
+            "priority_kind": "compute_priority",
+            "amount_mu": "1.5",
+            "reason": "Priority verification slot"
+        })),
+    );
+    assert_eq!(rest_cons_code, 200);
+    assert_eq!(rest_cons_res["after_cur_merit_raw"], 31_500_000i64);
+    assert_eq!(rest_cons_res["min_merit_floor_raw"], floor_after_add_raw);
+
+    // 4. Over-consumption above consumable surplus MUST be rejected with error & leave state untouched
+    let (over_rpc_code, over_rpc) = http_json(
+        addr,
+        "POST",
+        "/rpc",
+        Some(&json!({
+            "jsonrpc": "2.0",
+            "id": 104,
+            "method": "gmc_consumePriority",
+            "params": {
+                "fay_id": ext_fay_id,
+                "priority_kind": "voting_priority",
+                "amount_mu": 999,
+                "reason": "Attempted over-consumption past minMerit floor"
+            }
+        })),
+    );
+    assert_eq!(over_rpc_code, 200);
+    assert!(
+        over_rpc["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("InsufficientConsumableMerit"),
+        "expected InsufficientConsumableMerit error, got: {over_rpc}"
+    );
+
+    let (over_http_code, over_http) = http_json(
+        addr,
+        "POST",
+        "/api/merit/consume",
+        Some(&json!({
+            "fay_id": ext_fay_id,
+            "priority_kind": "voting_priority",
+            "amount_mu": "999.25",
+            "reason": "Attempted REST over-consumption"
+        })),
+    );
+    assert_eq!(over_http_code, 400);
+    assert!(over_http["error"]
+        .as_str()
+        .unwrap()
+        .contains("InsufficientConsumableMerit"));
+
+    // 5. Verify Explorer snapshot reflects `external_fay_id`, `consumable_merit_mu`, `priority_consumptions`, and ballot on `prop-001`
+    let (exp_code, exp_snap) = http_json(addr, "GET", "/api/explorer?elapsed_days=0", None);
+    assert_eq!(exp_code, 200);
+    let ext_pocket = exp_snap["pockets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["external_fay_id"] == ext_fay_id)
+        .expect("external FayGer pocket in explorer");
+    assert_eq!(ext_pocket["cur_merit_raw"], 31_500_000i64);
+    assert_eq!(ext_pocket["min_merit_floor_raw"], floor_after_add_raw);
+    assert_eq!(
+        ext_pocket["consumable_merit_raw"],
+        31_500_000i64 - floor_after_add_raw
+    );
+    assert_eq!(
+        exp_snap["priority_consumptions"].as_array().unwrap().len(),
+        2
+    );
+
+    let prop_001 = exp_snap["proposals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["proposal_id"] == "prop-001")
+        .expect("prop-001 present");
+    assert_eq!(prop_001["ballots"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        prop_001["ballots"][0]["voter_display_name"],
+        "Jah's Personal iFay"
+    );
+
+    // 6. Clean shutdown & reopen preserves identical StateRoot and priority_consumptions
+    let root_before_shutdown = hex::encode(handle.shutdown().expect("clean shutdown"));
+    let mut reopened_cfg = config;
+    reopened_cfg.chain_id = "gmchain-public-testnet-1".to_string();
+    let reopened = NodeRuntime::open_public_testnet(reopened_cfg).expect("reopen public testnet");
+    assert_eq!(reopened.state_root_hex(), root_before_shutdown);
+    assert_eq!(reopened.testnet_state().priority_consumptions.len(), 2);
 
     let _ = std::fs::remove_dir_all(&data_dir);
 }

@@ -160,6 +160,12 @@ pub enum GmcError {
     AppealWindowExpired,
     /// Appeal resolution attempted without a strictly expanded wider-community electorate.
     AppealElectorateNotExpanded,
+
+    // --- Priority / voting priority consumption ---
+    /// Priority consumption amount exceeds the pocket's active consumable surplus
+    /// above `minMerit` (`amount > consumable_merit(now)`).
+    /// Reject; pocket batches and `minMerit` unchanged.
+    InsufficientConsumableMerit,
 }
 
 impl GmcError {
@@ -206,6 +212,7 @@ impl GmcError {
             GmcError::AdmissibilityNotMet => "AdmissibilityNotMet",
             GmcError::AppealWindowExpired => "AppealWindowExpired",
             GmcError::AppealElectorateNotExpanded => "AppealElectorateNotExpanded",
+            GmcError::InsufficientConsumableMerit => "InsufficientConsumableMerit",
         }
     }
 }
@@ -232,6 +239,10 @@ mod tests {
         assert_eq!(
             GmcError::ProofVerificationFailed.code(),
             "ProofVerificationFailed"
+        );
+        assert_eq!(
+            GmcError::InsufficientConsumableMerit.code(),
+            "InsufficientConsumableMerit"
         );
     }
 

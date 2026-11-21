@@ -21,8 +21,8 @@ use gmc_core::l1_settlement::{ConsensusConfig, L1Settlement};
 use gmc_core::types::ChainId;
 
 fn read_tracked_architecture_blueprint() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/zh-CN/blueprint/12-技术架构.md");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/zh-CN/blueprint/12-技术架构.md");
     fs::read_to_string(&path).unwrap_or_else(|err| {
         panic!(
             "tracked architecture blueprint must exist at {}: {err}",

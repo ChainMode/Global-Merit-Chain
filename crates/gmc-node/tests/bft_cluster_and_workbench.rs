@@ -38,10 +38,8 @@ struct TempDirGuard(PathBuf);
 impl TempDirGuard {
     fn new(prefix: &str) -> Self {
         let id = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "gmc-w4-it-{prefix}-{}-{id}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("gmc-w4-it-{prefix}-{}-{id}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp test dir");
         TempDirGuard(dir)
@@ -187,7 +185,9 @@ fn consensus_primitives_quorum_qc_and_equivocation_ejection() {
         state_root,
         votes: vec![vote0, vote1, vote2],
     };
-    valid_qc.verify(&vset, chain_id).expect("3/4 QC must verify");
+    valid_qc
+        .verify(&vset, chain_id)
+        .expect("3/4 QC must verify");
 
     // EquivocationEvidence: validator 3 double-votes for block_hash_a and block_hash_b at (1, 0, Prevote)
     let eq_a = SignedConsensusVote::sign(
@@ -298,11 +298,8 @@ fn four_node_tcp_bft_cluster_fault_tolerance_equivocation_and_state_root_converg
         .build_signed_proposal(1, 0, 1_700_000_030, h1_txs.clone())
         .unwrap();
     forged_proposal.state_root = [0xFEu8; 32];
-    forged_proposal = BlockProposal::resign_for_test(
-        forged_proposal,
-        &members[h1_leader_idx].0,
-    )
-    .unwrap();
+    forged_proposal =
+        BlockProposal::resign_for_test(forged_proposal, &members[h1_leader_idx].0).unwrap();
     let root_before_forged = nodes[0].state_root_hex();
     nodes[h1_leader_idx]
         .broadcast_raw(BftWireMessage::Propose(forged_proposal))
@@ -392,7 +389,11 @@ fn four_node_tcp_bft_cluster_fault_tolerance_equivocation_and_state_root_converg
         assert_eq!(honest.active_validator_count(), 3);
         let qc2 = honest.latest_qc().unwrap();
         assert_eq!(qc2.height, 2);
-        assert_eq!(qc2.votes.len(), 3, "Height 2 committed with exact 3/4 quorum");
+        assert_eq!(
+            qc2.votes.len(),
+            3,
+            "Height 2 committed with exact 3/4 quorum"
+        );
     }
 
     for node in nodes {
@@ -456,15 +457,23 @@ fn loopback_cors_rpc_methods_workbench_ui_and_cli_subcommands() {
     );
     assert_eq!(code, 200);
     assert!(headers.to_ascii_lowercase().contains("text/html"));
-    assert!(headers.to_ascii_lowercase().contains("access-control-allow-origin: *"));
+    assert!(headers
+        .to_ascii_lowercase()
+        .contains("access-control-allow-origin: *"));
     assert!(html.contains("Meritora Desktop"));
     assert!(html.contains("Preview v0.2"));
     assert!(html.contains("FEE = 0"));
     assert!(html.contains("REWARD = 0"));
     assert!(html.contains("B_i = 0"));
     assert!(html.contains("中文") && html.contains("English"));
-    assert!(!html.contains("<script src=\"http"), "must have zero external script CDNs");
-    assert!(!html.contains("<link rel=\"stylesheet\" href=\"http"), "must have zero external CSS CDNs");
+    assert!(
+        !html.contains("<script src=\"http"),
+        "must have zero external script CDNs"
+    );
+    assert!(
+        !html.contains("<link rel=\"stylesheet\" href=\"http"),
+        "must have zero external CSS CDNs"
+    );
 
     // 3. JSON-RPC `gmc_status`, `gmc_validators`, `gmc_demoStep`, `gmc_produceBlock`
     let call_rpc = |method: &str, params: Value| -> Value {
@@ -483,7 +492,9 @@ fn loopback_cors_rpc_methods_workbench_ui_and_cli_subcommands() {
         raw.extend_from_slice(&payload);
         let (code, hdrs, resp_body) = send_http_full(addr, &raw);
         assert_eq!(code, 200);
-        assert!(hdrs.to_ascii_lowercase().contains("access-control-allow-origin: *"));
+        assert!(hdrs
+            .to_ascii_lowercase()
+            .contains("access-control-allow-origin: *"));
         serde_json::from_str(&resp_body).unwrap()
     };
 
@@ -499,10 +510,21 @@ fn loopback_cors_rpc_methods_workbench_ui_and_cli_subcommands() {
     assert_eq!(vals0["result"]["quorum_threshold"], json!(3));
 
     let demo_res = call_rpc("gmc_demoStep", json!({}));
-    assert_eq!(demo_res["result"]["block_receipt"]["block_height"], json!(1));
-    assert!(demo_res["result"]["latest_qc"]["vote_count"].as_u64().unwrap() >= 3);
+    assert_eq!(
+        demo_res["result"]["block_receipt"]["block_height"],
+        json!(1)
+    );
+    assert!(
+        demo_res["result"]["latest_qc"]["vote_count"]
+            .as_u64()
+            .unwrap()
+            >= 3
+    );
 
-    let blk2 = call_rpc("gmc_produceBlock", json!({ "timestamp_secs": 1_700_000_500u64 }));
+    let blk2 = call_rpc(
+        "gmc_produceBlock",
+        json!({ "timestamp_secs": 1_700_000_500u64 }),
+    );
     assert_eq!(blk2["result"]["block_height"], json!(2));
     assert_eq!(blk2["result"]["fee_charged_raw"], json!(0));
     assert_eq!(blk2["result"]["operator_reward_raw"], json!(0));

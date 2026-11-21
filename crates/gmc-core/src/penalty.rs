@@ -71,10 +71,10 @@ impl PenaltySeverity {
     /// Slash ratio applied to the offending batch's decayable value (`V - B`, or full `V` when reducing floor).
     pub const fn offending_batch_slash_ratio(self) -> Ratio {
         match self {
-            PenaltySeverity::Minor => const_ratio(200_000),    // 20%
+            PenaltySeverity::Minor => const_ratio(200_000), // 20%
             PenaltySeverity::Moderate => const_ratio(500_000), // 50%
-            PenaltySeverity::Severe => const_ratio(800_000),   // 80%
-            PenaltySeverity::Critical => Ratio::ONE,           // 100%
+            PenaltySeverity::Severe => const_ratio(800_000), // 80%
+            PenaltySeverity::Critical => Ratio::ONE,        // 100%
         }
     }
 
@@ -82,7 +82,7 @@ impl PenaltySeverity {
     pub const fn pocket_wide_slash_ratio(self) -> Ratio {
         match self {
             PenaltySeverity::Minor | PenaltySeverity::Moderate => Ratio::ZERO,
-            PenaltySeverity::Severe => const_ratio(250_000),   // 25%
+            PenaltySeverity::Severe => const_ratio(250_000), // 25%
             PenaltySeverity::Critical => const_ratio(500_000), // 50%
         }
     }
@@ -91,7 +91,7 @@ impl PenaltySeverity {
     pub const fn min_merit_slash_ratio(self) -> Ratio {
         match self {
             PenaltySeverity::Minor | PenaltySeverity::Moderate => Ratio::ZERO,
-            PenaltySeverity::Severe => const_ratio(250_000),   // 25%
+            PenaltySeverity::Severe => const_ratio(250_000), // 25%
             PenaltySeverity::Critical => const_ratio(600_000), // 60%
         }
     }
@@ -305,7 +305,11 @@ fn apply_slash_to_pocket(
     severity: PenaltySeverity,
     now: Timestamp,
 ) -> GmcResult<()> {
-    if !pocket.batches.iter().any(|b| b.batch_id == offending_batch_id) {
+    if !pocket
+        .batches
+        .iter()
+        .any(|b| b.batch_id == offending_batch_id)
+    {
         return Err(GmcError::ComplaintInvalid);
     }
 
@@ -341,9 +345,7 @@ fn apply_slash_to_pocket(
             let actual_cut = desired_cut.min(max_removable);
 
             if excess_now.is_positive() && actual_cut.is_positive() {
-                let remain_excess = excess_now
-                    .checked_sub(actual_cut)
-                    .unwrap_or(Decimal::ZERO);
+                let remain_excess = excess_now.checked_sub(actual_cut).unwrap_or(Decimal::ZERO);
                 let amp = batch.v.checked_sub(batch.b).unwrap_or(Decimal::ZERO);
                 let new_amp = amp
                     .checked_mul(remain_excess)
@@ -364,13 +366,9 @@ fn apply_slash_to_pocket(
                 .find(|b| b.batch_id == offending_batch_id)
             {
                 batch.v = batch.v.checked_add(deficit).unwrap_or(batch.v);
-                batch.b = batch.b.max(
-                    batch
-                        .b
-                        .checked_add(deficit)
-                        .unwrap_or(batch.b)
-                        .min(batch.v),
-                );
+                batch.b = batch
+                    .b
+                    .max(batch.b.checked_add(deficit).unwrap_or(batch.b).min(batch.v));
             }
         }
     } else {
@@ -541,8 +539,11 @@ impl PenaltyEngine {
 
         let (_voter_count, approve_merit, total_merit) =
             tally_ballots(ballots, &complainant, &respondent)?;
-        let admitted =
-            meets_weighted_threshold(approve_merit, total_merit, self.policy.admissibility_threshold);
+        let admitted = meets_weighted_threshold(
+            approve_merit,
+            total_merit,
+            self.policy.admissibility_threshold,
+        );
 
         let case = self.cases.get_mut(complaint_id).unwrap();
         if admitted {

@@ -231,6 +231,19 @@ impl MeritBatch {
         DECAY_CONSTANT_K.checked_div(influence_duration)
     }
 
+    /// Computes the deterministic decay factor `e^(−λ · elapsed)` at `now`.
+    fn decay_factor_at(&self, now: Timestamp) -> Decimal {
+        let elapsed_secs = now.saturating_elapsed_since(self.acquired_at);
+        // Clamp the i64 conversion defensively; such magnitudes are astronomical.
+        let elapsed = Decimal::from_int(elapsed_secs.min(i64::MAX as u64) as i64);
+
+        // y = λ · t. On overflow treat the exponent as effectively infinite ⇒ factor 0.
+        match self.lambda.checked_mul(elapsed) {
+            Some(y) => exp_neg(y),
+            None => Decimal::ZERO,
+        }
+    }
+
     /// Returns this batch's decayed Merit value at on-chain time `now`:
     ///
     /// ```text
@@ -242,15 +255,7 @@ impl MeritBatch {
     /// `b`. On any arithmetic overflow (only reachable with unrealistically extreme
     /// inputs) it falls back to the floor `b`, the safe lower bound.
     pub fn merit_at(&self, now: Timestamp) -> Decimal {
-        let elapsed_secs = now.saturating_elapsed_since(self.acquired_at);
-        // Clamp the i64 conversion defensively; such magnitudes are astronomical.
-        let elapsed = Decimal::from_int(elapsed_secs.min(i64::MAX as u64) as i64);
-
-        // y = λ · t. On overflow treat the exponent as effectively infinite ⇒ factor 0.
-        let factor = match self.lambda.checked_mul(elapsed) {
-            Some(y) => exp_neg(y),
-            None => Decimal::ZERO,
-        };
+        let factor = self.decay_factor_at(now);
 
         // (V − B) · factor + B, falling back to the floor B on overflow.
         self.v
@@ -434,6 +439,161 @@ impl MeritPocket {
     /// pipeline and tests assert the invariant at any concrete time point.
     pub fn invariant_holds(&self, now: Timestamp) -> bool {
         self.cur_merit(now) >= self.min_merit
+    }
+
+    /// Computes the active decaying surplus above `minMerit` that may be voluntarily
+    /// consumed for priority or voting priority at on-chain time `now`.
+    ///
+    /// Consumed merit only ever reduces active decaying amplitude above batch floors `b_i`
+    /// and never touches `min_merit` (which only decreases via formal community punishment).
+    pub fn consumable_merit(&self, now: Timestamp) -> Decimal {
+        let cur = self.cur_merit(now);
+        let floor = self.min_merit;
+        let above_floor = cur
+            .checked_sub(floor)
+            .unwrap_or(Decimal::ZERO)
+            .max(Decimal::ZERO);
+
+        let mut batch_surplus_sum = Decimal::ZERO;
+        for batch in &self.batches {
+            let s_i = batch
+                .merit_at(now)
+                .checked_sub(batch.b)
+                .unwrap_or(Decimal::ZERO);
+            if s_i.is_positive() {
+                batch_surplus_sum = batch_surplus_sum
+                    .checked_add(s_i)
+                    .unwrap_or(batch_surplus_sum);
+            }
+        }
+
+        above_floor.min(batch_surplus_sum)
+    }
+
+    /// Destroys/reduces `amount` of active decaying `MeriToken (μ)` surplus from this pocket
+    /// for priority or voting priority consumption at on-chain time `now`.
+    ///
+    /// - Never transfers `MeriToken` to any other account (non-monetary iron law);
+    /// - Preserves every batch's floor `b_i` and keeps `self.min_merit` strictly unchanged;
+    /// - Guarantees `v'_i >= b_i` for every batch and `self.cur_merit(now) >= self.min_merit`.
+    pub fn consume_priority(&mut self, amount: Decimal, now: Timestamp) -> GmcResult<Decimal> {
+        if !amount.is_positive() {
+            return Err(GmcError::InvalidMintAmount);
+        }
+
+        let before_cur = self.cur_merit(now);
+        let consumable = self.consumable_merit(now);
+        if amount > consumable {
+            return Err(GmcError::InsufficientConsumableMerit);
+        }
+
+        // Collect active batches with strictly positive decaying surplus s_i = merit_at(now) - b_i > 0.
+        let mut active: Vec<(usize, i128, i128)> = Vec::new();
+        let mut batch_surplus_sum_raw: i128 = 0;
+        for (idx, batch) in self.batches.iter().enumerate() {
+            let s_i = batch
+                .merit_at(now)
+                .checked_sub(batch.b)
+                .unwrap_or(Decimal::ZERO);
+            if s_i.is_positive() {
+                let old_amp_raw = batch.v.checked_sub(batch.b).unwrap_or(Decimal::ZERO).raw();
+                let factor_raw = batch.decay_factor_at(now).raw();
+                if old_amp_raw > 0 && factor_raw > 0 {
+                    batch_surplus_sum_raw = batch_surplus_sum_raw
+                        .checked_add(s_i.raw())
+                        .ok_or(GmcError::InvalidMintAmount)?;
+                    active.push((idx, old_amp_raw, factor_raw));
+                }
+            }
+        }
+
+        if batch_surplus_sum_raw < amount.raw() || batch_surplus_sum_raw <= 0 {
+            return Err(GmcError::InsufficientConsumableMerit);
+        }
+
+        let remaining_surplus_raw = batch_surplus_sum_raw - amount.raw();
+
+        // Check no overflow before mutating any batch so failure stays atomic.
+        let mut planned_amps: Vec<(usize, i128)> = Vec::with_capacity(active.len());
+        for &(idx, old_amp_raw, _) in &active {
+            let new_amp_raw = if remaining_surplus_raw == 0 {
+                0
+            } else {
+                old_amp_raw
+                    .checked_mul(remaining_surplus_raw)
+                    .map(|prod| prod / batch_surplus_sum_raw)
+                    .ok_or(GmcError::InvalidMintAmount)?
+                    .max(0)
+            };
+            planned_amps.push((idx, new_amp_raw));
+        }
+
+        for (idx, new_amp_raw) in planned_amps {
+            let b_val = self.batches[idx].b;
+            self.batches[idx].v = b_val
+                .checked_add(Decimal::from_raw(new_amp_raw))
+                .unwrap_or(b_val)
+                .max(b_val);
+        }
+
+        // Handle 1-2 ulp fixed-point truncation defensively so `v'_i >= b_i` for every batch,
+        // `cur_merit(now)` hits `before_cur - amount` cleanly, and `cur_merit(now) >= min_merit` ALWAYS holds.
+        let target_cur = before_cur
+            .checked_sub(amount)
+            .unwrap_or(self.min_merit)
+            .max(self.min_merit);
+
+        if self.cur_merit(now) < target_cur {
+            for &(idx, old_amp_raw, factor_raw) in &active {
+                let cur_now = self.cur_merit(now);
+                if cur_now >= target_cur {
+                    break;
+                }
+                let shortfall_raw = target_cur.raw() - cur_now.raw();
+                let b_val = self.batches[idx].b;
+                let cur_amp_raw = (self.batches[idx].v.raw() - b_val.raw()).max(0);
+                let cur_scaled_raw = (cur_amp_raw * factor_raw) / Decimal::SCALE;
+                let max_scaled_raw = (old_amp_raw * factor_raw) / Decimal::SCALE;
+                let gain_raw = shortfall_raw.min((max_scaled_raw - cur_scaled_raw).max(0));
+                if gain_raw > 0 {
+                    let des_s_raw = cur_scaled_raw + gain_raw;
+                    let q = ((des_s_raw * Decimal::SCALE + factor_raw - 1) / factor_raw)
+                        .clamp(cur_amp_raw, old_amp_raw);
+                    self.batches[idx].v = b_val
+                        .checked_add(Decimal::from_raw(q))
+                        .unwrap_or(b_val)
+                        .max(b_val);
+                }
+            }
+        } else if self.cur_merit(now) > target_cur {
+            for &(idx, old_amp_raw, factor_raw) in &active {
+                let cur_now = self.cur_merit(now);
+                if cur_now <= target_cur {
+                    break;
+                }
+                let excess_raw = cur_now.raw() - target_cur.raw();
+                let b_val = self.batches[idx].b;
+                let cur_amp_raw = (self.batches[idx].v.raw() - b_val.raw()).max(0);
+                let cur_scaled_raw = (cur_amp_raw * factor_raw) / Decimal::SCALE;
+                let drop_raw = excess_raw.min(cur_scaled_raw);
+                if drop_raw > 0 {
+                    let des_s_raw = cur_scaled_raw - drop_raw;
+                    let q = ((des_s_raw * Decimal::SCALE + factor_raw - 1) / factor_raw)
+                        .clamp(0, old_amp_raw);
+                    let prev_v = self.batches[idx].v;
+                    self.batches[idx].v = b_val
+                        .checked_add(Decimal::from_raw(q))
+                        .unwrap_or(b_val)
+                        .max(b_val);
+                    if self.cur_merit(now) < self.min_merit {
+                        self.batches[idx].v = prev_v;
+                    }
+                }
+            }
+        }
+
+        debug_assert!(self.invariant_holds(now));
+        Ok(self.cur_merit(now))
     }
 }
 
@@ -860,5 +1020,171 @@ mod tests {
             "far-future curMerit {far} did not converge to Σ B_i = 12"
         );
         assert!(pocket.invariant_holds(ts(50_000_000)));
+    }
+
+    // --- Priority / voting priority consumption ----------------------------
+
+    #[test]
+    fn consumable_merit_empty_and_welcome_pocket() {
+        let mut pocket = MeritPocket::new(FayID::from("fay-ext-1"));
+        assert_eq!(pocket.consumable_merit(ts(1_000)), Decimal::ZERO);
+
+        // Welcome batch of 5 μ backed by floor E = 2.718281 μ
+        pocket.add_batch(MeritBatch::new(
+            "welcome",
+            Decimal::from_int(5),
+            E,
+            Decimal::from_str("0.000002").unwrap(),
+            Decimal::from_int(500_000),
+            ts(1_000),
+            ChainId::from("gmc-open-science"),
+        ));
+        assert_eq!(pocket.cur_merit(ts(1_000)), Decimal::from_int(5));
+        assert_eq!(pocket.min_merit(), E);
+        assert_eq!(
+            pocket.consumable_merit(ts(1_000)),
+            Decimal::from_str("2.281719").unwrap()
+        );
+    }
+
+    #[test]
+    fn consume_priority_exact_at_acquired_time_and_preserves_min_merit() {
+        let mut pocket = MeritPocket::new(FayID::from("fay-ext-2"));
+        let now = ts(10_000);
+        pocket.add_batch(MeritBatch::new(
+            "b1",
+            Decimal::from_int(5),
+            E,
+            Decimal::from_str("0.000002").unwrap(),
+            Decimal::from_int(500_000),
+            now,
+            ChainId::from("gmc-open-science"),
+        ));
+        let m_before = pocket.cur_merit(now);
+        let floor_before = pocket.min_merit();
+        let floor_after_mint = pocket
+            .update_min_merit(Decimal::from_int(40), m_before)
+            .unwrap();
+        let b2_floor = floor_after_mint.checked_sub(floor_before).unwrap();
+        pocket.add_batch(MeritBatch::new(
+            "b2",
+            Decimal::from_int(40),
+            b2_floor,
+            Decimal::from_str("0.000002").unwrap(),
+            Decimal::from_int(500_000),
+            now,
+            ChainId::from("gmc-open-science"),
+        ));
+
+        let before_cur = pocket.cur_merit(now);
+        assert_eq!(before_cur, Decimal::from_int(45));
+        let preserved_floor = pocket.min_merit();
+
+        let after_cur = pocket
+            .consume_priority(Decimal::from_int(12), now)
+            .expect("consume 12 mu priority");
+        assert_eq!(after_cur, Decimal::from_int(33));
+        assert_eq!(pocket.cur_merit(now), Decimal::from_int(33));
+        assert_eq!(pocket.min_merit(), preserved_floor);
+        assert_eq!(pocket.batches[0].b, E);
+        assert_eq!(pocket.batches[1].b, b2_floor);
+        assert!(pocket.invariant_holds(now));
+    }
+
+    #[test]
+    fn consume_priority_rejects_invalid_and_excess_without_mutation() {
+        let mut pocket = MeritPocket::new(FayID::from("fay-ext-3"));
+        let now = ts(5_000);
+        pocket.add_batch(MeritBatch::new(
+            "b1",
+            Decimal::from_int(10),
+            E,
+            Decimal::from_str("0.001").unwrap(),
+            Decimal::from_int(1_000),
+            now,
+            ChainId::from("chain-1"),
+        ));
+        let snapshot = pocket.clone();
+
+        assert_eq!(
+            pocket.consume_priority(Decimal::ZERO, now),
+            Err(GmcError::InvalidMintAmount)
+        );
+        assert_eq!(
+            pocket.consume_priority(Decimal::from_int(-3), now),
+            Err(GmcError::InvalidMintAmount)
+        );
+        // Consumable is 10 - 2.718281 = 7.281719; requesting 8 must fail atomically.
+        assert_eq!(
+            pocket.consume_priority(Decimal::from_int(8), now),
+            Err(GmcError::InsufficientConsumableMerit)
+        );
+        assert_eq!(pocket, snapshot);
+    }
+
+    #[test]
+    fn consume_priority_across_decayed_batches_and_subsequent_monotonic_decay() {
+        let mut pocket = MeritPocket::new(FayID::from("fay-ext-4"));
+        pocket.min_merit = Decimal::from_int(15);
+        pocket.add_batch(MeritBatch::new(
+            "b1",
+            Decimal::from_int(80),
+            Decimal::from_int(10),
+            Decimal::from_str("0.002").unwrap(),
+            Decimal::from_int(500),
+            ts(0),
+            ChainId::from("chain-1"),
+        ));
+        pocket.add_batch(MeritBatch::new(
+            "b2",
+            Decimal::from_int(45),
+            Decimal::from_int(5),
+            Decimal::from_str("0.001").unwrap(),
+            Decimal::from_int(1_000),
+            ts(100),
+            ChainId::from("chain-2"),
+        ));
+
+        let now = ts(400);
+        let before_cur = pocket.cur_merit(now);
+        let floor_before = pocket.min_merit();
+        let consume_amt = Decimal::from_str("17.35").unwrap();
+        assert!(consume_amt <= pocket.consumable_merit(now));
+
+        let after_cur = pocket.consume_priority(consume_amt, now).unwrap();
+        let expected_cur = before_cur.checked_sub(consume_amt).unwrap();
+        let raw_diff = (after_cur.raw() - expected_cur.raw()).abs();
+        assert!(
+            raw_diff <= 2,
+            "expected deduction within <= 2 raw units: got {after_cur}, expected {expected_cur}"
+        );
+        assert_eq!(pocket.min_merit(), floor_before);
+
+        // Verify subsequent time decay remains monotonic and converges to Σ b_i == min_merit = 15.
+        let tol = Decimal::from_str("0.0001").unwrap();
+        let mut prev = after_cur;
+        for &future_t in &[400u64, 500, 800, 1_500, 5_000, 50_000, 5_000_000] {
+            let cur = pocket.cur_merit(ts(future_t));
+            assert!(
+                cur <= prev.checked_add(tol).unwrap(),
+                "post-consumption decay increased at t={future_t}: {cur} > {prev}"
+            );
+            assert!(pocket.invariant_holds(ts(future_t)));
+            prev = cur;
+        }
+        assert!(approx_eq(
+            pocket.cur_merit(ts(50_000_000)),
+            Decimal::from_int(15),
+            Decimal::from_str("0.001").unwrap()
+        ));
+
+        // Also verify full consumable exhaustion lands cleanly on min_merit.
+        let rem = pocket.consumable_merit(ts(600));
+        if rem.is_positive() {
+            let floored = pocket.consume_priority(rem, ts(600)).unwrap();
+            assert_eq!(floored, pocket.min_merit());
+            assert_eq!(pocket.consumable_merit(ts(600)), Decimal::ZERO);
+            assert!(pocket.invariant_holds(ts(600)));
+        }
     }
 }

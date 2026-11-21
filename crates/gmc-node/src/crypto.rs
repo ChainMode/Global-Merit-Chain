@@ -91,8 +91,7 @@ impl Verifier for Ed25519Verifier {
     }
 
     fn verify(&self, vk: &VerifyingKey, msg: &[u8], sig: &Signature) -> bool {
-        let Ok(vk_bytes): Result<[u8; ED25519_PUBLIC_KEY_LEN], _> = vk.as_bytes().try_into()
-        else {
+        let Ok(vk_bytes): Result<[u8; ED25519_PUBLIC_KEY_LEN], _> = vk.as_bytes().try_into() else {
             return false;
         };
         let Ok(sig_bytes): Result<[u8; ED25519_SIGNATURE_LEN], _> = sig.as_bytes().try_into()
@@ -155,72 +154,68 @@ pub fn run_ed25519_kat_internal(
         .resolve(&SchemeTag::ed25519())
         .map_err(|_| NodeError::KatSelfTestFailed("ed25519 missing from SchemeRegistry".into()))?;
 
-    let check_vector = |label: &str,
-                        sk_hex: &str,
-                        pk_hex: &str,
-                        msg: &[u8],
-                        sig_hex: &str|
-     -> NodeResult<()> {
-        let sk_vec = hex::decode(sk_hex)
-            .map_err(|e| NodeError::KatSelfTestFailed(format!("{label} sk hex: {e}")))?;
-        let expected_pk = hex::decode(pk_hex)
-            .map_err(|e| NodeError::KatSelfTestFailed(format!("{label} pk hex: {e}")))?;
-        let expected_sig = hex::decode(sig_hex)
-            .map_err(|e| NodeError::KatSelfTestFailed(format!("{label} sig hex: {e}")))?;
+    let check_vector =
+        |label: &str, sk_hex: &str, pk_hex: &str, msg: &[u8], sig_hex: &str| -> NodeResult<()> {
+            let sk_vec = hex::decode(sk_hex)
+                .map_err(|e| NodeError::KatSelfTestFailed(format!("{label} sk hex: {e}")))?;
+            let expected_pk = hex::decode(pk_hex)
+                .map_err(|e| NodeError::KatSelfTestFailed(format!("{label} pk hex: {e}")))?;
+            let expected_sig = hex::decode(sig_hex)
+                .map_err(|e| NodeError::KatSelfTestFailed(format!("{label} sig hex: {e}")))?;
 
-        let seed: [u8; 32] = sk_vec
-            .try_into()
-            .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} invalid sk len")))?;
-        let (sk, vk) = keypair_from_seed(&seed);
+            let seed: [u8; 32] = sk_vec
+                .try_into()
+                .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} invalid sk len")))?;
+            let (sk, vk) = keypair_from_seed(&seed);
 
-        descriptor
-            .validate_verifying_key(vk.as_bytes())
-            .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} vk format invalid")))?;
-        if vk.as_bytes() != expected_pk.as_slice() {
-            return Err(NodeError::KatSelfTestFailed(format!(
-                "{label} derived public key mismatch"
-            )));
-        }
+            descriptor
+                .validate_verifying_key(vk.as_bytes())
+                .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} vk format invalid")))?;
+            if vk.as_bytes() != expected_pk.as_slice() {
+                return Err(NodeError::KatSelfTestFailed(format!(
+                    "{label} derived public key mismatch"
+                )));
+            }
 
-        let sig = Ed25519Signer
-            .sign(&sk, msg)
-            .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} signing failed")))?;
-        descriptor
-            .validate_signature(sig.as_bytes())
-            .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} sig format invalid")))?;
-        if sig.as_bytes() != expected_sig.as_slice() {
-            return Err(NodeError::KatSelfTestFailed(format!(
-                "{label} deterministic signature mismatch"
-            )));
-        }
+            let sig = Ed25519Signer
+                .sign(&sk, msg)
+                .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} signing failed")))?;
+            descriptor
+                .validate_signature(sig.as_bytes())
+                .map_err(|_| NodeError::KatSelfTestFailed(format!("{label} sig format invalid")))?;
+            if sig.as_bytes() != expected_sig.as_slice() {
+                return Err(NodeError::KatSelfTestFailed(format!(
+                    "{label} deterministic signature mismatch"
+                )));
+            }
 
-        if !Ed25519Verifier.verify(&vk, msg, &sig) {
-            return Err(NodeError::KatSelfTestFailed(format!(
-                "{label} valid signature rejected"
-            )));
-        }
+            if !Ed25519Verifier.verify(&vk, msg, &sig) {
+                return Err(NodeError::KatSelfTestFailed(format!(
+                    "{label} valid signature rejected"
+                )));
+            }
 
-        // 1-bit signature tamper must be rejected.
-        let mut tampered_sig_bytes = sig.as_bytes().to_vec();
-        tampered_sig_bytes[0] ^= 0x01;
-        let tampered_sig = Signature::new(tampered_sig_bytes);
-        if Ed25519Verifier.verify(&vk, msg, &tampered_sig) {
-            return Err(NodeError::KatSelfTestFailed(format!(
-                "{label} tampered signature accepted"
-            )));
-        }
+            // 1-bit signature tamper must be rejected.
+            let mut tampered_sig_bytes = sig.as_bytes().to_vec();
+            tampered_sig_bytes[0] ^= 0x01;
+            let tampered_sig = Signature::new(tampered_sig_bytes);
+            if Ed25519Verifier.verify(&vk, msg, &tampered_sig) {
+                return Err(NodeError::KatSelfTestFailed(format!(
+                    "{label} tampered signature accepted"
+                )));
+            }
 
-        // Wrong message must be rejected.
-        let mut wrong_msg = msg.to_vec();
-        wrong_msg.push(0xFF);
-        if Ed25519Verifier.verify(&vk, &wrong_msg, &sig) {
-            return Err(NodeError::KatSelfTestFailed(format!(
-                "{label} tampered message accepted"
-            )));
-        }
+            // Wrong message must be rejected.
+            let mut wrong_msg = msg.to_vec();
+            wrong_msg.push(0xFF);
+            if Ed25519Verifier.verify(&vk, &wrong_msg, &sig) {
+                return Err(NodeError::KatSelfTestFailed(format!(
+                    "{label} tampered message accepted"
+                )));
+            }
 
-        Ok(())
-    };
+            Ok(())
+        };
 
     check_vector(
         "RFC8032-TV1",
@@ -254,7 +249,10 @@ impl fmt::Debug for OperatorKeypair {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OperatorKeypair")
             .field("node_id", &self.node_id.canonical())
-            .field("verifying_key_hex", &hex::encode(self.verifying_key.as_bytes()))
+            .field(
+                "verifying_key_hex",
+                &hex::encode(self.verifying_key.as_bytes()),
+            )
             .field("signing_key", &"<redacted>")
             .finish()
     }
@@ -263,10 +261,7 @@ impl fmt::Debug for OperatorKeypair {
 impl OperatorKeypair {
     /// Builds an [`OperatorKeypair`] from a 32-byte seed, deriving its Ed25519
     /// [`VerifyingKey`] and deterministic [`IdentityId`].
-    pub fn from_seed(
-        registry: &SchemeRegistry,
-        seed: [u8; ED25519_SEED_LEN],
-    ) -> NodeResult<Self> {
+    pub fn from_seed(registry: &SchemeRegistry, seed: [u8; ED25519_SEED_LEN]) -> NodeResult<Self> {
         let zeroized_seed = Zeroizing::new(seed);
         let dalek_sk = DalekSigningKey::from_bytes(&zeroized_seed);
         let vk = VerifyingKey::new(dalek_sk.verifying_key().to_bytes().to_vec());
@@ -321,7 +316,9 @@ pub struct OperatorKeyStore;
 impl OperatorKeyStore {
     /// Canonical path `<data_dir>/keystore/operator.key`.
     pub fn key_file_path(data_dir: &Path) -> PathBuf {
-        data_dir.join(KEYSTORE_DIR_NAME).join(OPERATOR_KEY_FILE_NAME)
+        data_dir
+            .join(KEYSTORE_DIR_NAME)
+            .join(OPERATOR_KEY_FILE_NAME)
     }
 
     /// Returns `true` if `<data_dir>/keystore/operator.key` already exists.
@@ -333,10 +330,7 @@ impl OperatorKeyStore {
     /// and writes it exclusively (`create_new(true)`, Unix mode `0600`).
     ///
     /// Fails with [`NodeError::KeyAlreadyExists`] if `operator.key` already exists.
-    pub fn init_random(
-        data_dir: &Path,
-        registry: &SchemeRegistry,
-    ) -> NodeResult<OperatorKeypair> {
+    pub fn init_random(data_dir: &Path, registry: &SchemeRegistry) -> NodeResult<OperatorKeypair> {
         let mut seed = Zeroizing::new([0u8; ED25519_SEED_LEN]);
         fill_os_random_bytes(&mut *seed)?;
         Self::init_with_seed(data_dir, registry, *seed)

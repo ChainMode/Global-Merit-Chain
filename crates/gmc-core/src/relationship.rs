@@ -78,10 +78,10 @@ impl RelationshipType {
     /// on-chain relationship declaration.
     pub const fn declaration_weight(self) -> Decimal {
         match self {
-            RelationshipType::Kinship => Decimal::from_raw(350_000),        // 0.35
-            RelationshipType::Legal => Decimal::from_raw(300_000),          // 0.30
+            RelationshipType::Kinship => Decimal::from_raw(350_000), // 0.35
+            RelationshipType::Legal => Decimal::from_raw(300_000),   // 0.30
             RelationshipType::Organizational => Decimal::from_raw(250_000), // 0.25
-            RelationshipType::Social => Decimal::from_raw(150_000),         // 0.15
+            RelationshipType::Social => Decimal::from_raw(150_000),  // 0.15
         }
     }
 
@@ -681,13 +681,8 @@ impl RelationshipGraph {
         privacy_tier: PrivacyTier,
         registered_at: Timestamp,
     ) -> GmcResult<CanonicalPair> {
-        let edge = RelationshipEdge::new_bilateral(
-            a,
-            b,
-            relationship_type,
-            privacy_tier,
-            registered_at,
-        )?;
+        let edge =
+            RelationshipEdge::new_bilateral(a, b, relationship_type, privacy_tier, registered_at)?;
         let pair = edge.pair.clone();
         if self.edges.contains_key(&pair) {
             return Err(GmcError::DomainConflict);

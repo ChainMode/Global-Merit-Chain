@@ -474,7 +474,9 @@ impl RecoveryService {
     }
 
     /// Ordered iterator over all rotation histories.
-    pub fn iter_rotation_history(&self) -> impl Iterator<Item = (&IdentityId, &Vec<RotationRecord>)> {
+    pub fn iter_rotation_history(
+        &self,
+    ) -> impl Iterator<Item = (&IdentityId, &Vec<RotationRecord>)> {
         self.rotation_history.iter()
     }
 
@@ -500,7 +502,10 @@ impl RecoveryService {
 
     /// Restores an in-flight [`RecoverySession`] during snapshot loading.
     pub fn restore_session(&mut self, session: RecoverySession) {
-        let key = (session.ifay.clone(), base32_encode(session.new_key.as_bytes()));
+        let key = (
+            session.ifay.clone(),
+            base32_encode(session.new_key.as_bytes()),
+        );
         self.sessions.insert(key, session);
     }
 }

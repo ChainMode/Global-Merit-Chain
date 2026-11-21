@@ -520,9 +520,10 @@ impl BftClusterNode {
             .lock()
             .map_err(|_| NodeError::Io("cluster mutex poisoned".into()))?;
         let parent_root = guard.runtime.state_root();
-        let state_root = guard
-            .runtime
-            .preview_bft_state_root(height, timestamp_secs, &transactions)?;
+        let state_root =
+            guard
+                .runtime
+                .preview_bft_state_root(height, timestamp_secs, &transactions)?;
         let chain_id = guard.runtime.config().chain_id.clone();
         BlockProposal::sign_new(
             &guard.seed,
@@ -856,13 +857,8 @@ pub fn run_cluster_demo(
     }
     let h2_ms = t2.elapsed().as_millis() as u64;
 
-    nodes[faulty_idx].inject_equivocation_over_tcp(
-        2,
-        round_h2,
-        [0xAA; 32],
-        [0xBB; 32],
-        [0xCC; 32],
-    )?;
+    nodes[faulty_idx]
+        .inject_equivocation_over_tcp(2, round_h2, [0xAA; 32], [0xBB; 32], [0xCC; 32])?;
     for honest in &nodes[..faulty_idx] {
         honest.wait_for_ejection(&faulty_id, BFT_FINALITY_BUDGET_MS)?;
     }
@@ -929,7 +925,8 @@ mod tests {
         .unwrap();
         let wire = BftWireMessage::Propose(prop);
         let bytes = serde_json::to_vec(&wire).expect("BftWireMessage serialize");
-        let decoded: BftWireMessage = serde_json::from_slice(&bytes).expect("BftWireMessage deserialize");
+        let decoded: BftWireMessage =
+            serde_json::from_slice(&bytes).expect("BftWireMessage deserialize");
         assert_eq!(wire, decoded);
 
         let dir = std::env::temp_dir().join(format!("gmc-net-ut-{}", std::process::id()));

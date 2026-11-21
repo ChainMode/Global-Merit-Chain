@@ -4,13 +4,10 @@
 use gmc_core::antifraud::{select_voters, Stakeholder};
 use gmc_core::error::GmcError;
 use gmc_core::merit::{MeritBatch, MeritPocket};
-use gmc_core::penalty::{
-    AppealOutcome, Complaint, PenaltyBallot, PenaltyEngine, PenaltySeverity,
-};
+use gmc_core::penalty::{AppealOutcome, Complaint, PenaltyBallot, PenaltyEngine, PenaltySeverity};
 use gmc_core::relationship::{
     apply_inheritance_to_pocket, compute_inheritance, compute_intimacy, should_exclude_voter,
-    PrivacyTier, RelationshipEdge, RelationshipGraph, RelationshipType,
-    INTERACTION_WINDOW_SECS,
+    PrivacyTier, RelationshipEdge, RelationshipGraph, RelationshipType, INTERACTION_WINDOW_SECS,
 };
 use gmc_core::types::{ChainId, Decimal, FayID, Ratio, Timestamp};
 use proptest::prelude::*;
@@ -68,8 +65,7 @@ fn parse_severity(s: &str) -> PenaltySeverity {
 
 #[test]
 fn relationship_and_inheritance_json_vectors_pass() {
-    let raw_json =
-        include_str!("../../../vectors/relationship/relationship-intimacy-vectors.json");
+    let raw_json = include_str!("../../../vectors/relationship/relationship-intimacy-vectors.json");
     let mut executed = 0usize;
 
     for chunk in raw_json.split('{').skip(1) {
@@ -126,9 +122,9 @@ fn relationship_and_inheritance_json_vectors_pass() {
 
                 let res = graph.verify_and_compute_intimacy(&a, &b, event_at);
                 if expect_status == "ok" {
-                    let expected_raw =
-                        extract_i64(body, "expected_intimacy_raw").expect("expected_intimacy_raw")
-                            as i128;
+                    let expected_raw = extract_i64(body, "expected_intimacy_raw")
+                        .expect("expected_intimacy_raw")
+                        as i128;
                     let actual = res.unwrap_or_else(|e| panic!("vector {vec_id} failed: {e:?}"));
                     assert_eq!(actual.value().raw(), expected_raw, "vector {vec_id}");
                 } else {

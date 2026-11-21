@@ -363,10 +363,7 @@ mod tests {
     fn exact_format_check_maps_violation_to_key_format_invalid() {
         let fmt = ByteFormat::exact(64);
         assert_eq!(fmt.check(&[7u8; 64]), Ok(()));
-        assert_eq!(
-            fmt.check(&[7u8; 63]),
-            Err(IdentityError::KeyFormatInvalid)
-        );
+        assert_eq!(fmt.check(&[7u8; 63]), Err(IdentityError::KeyFormatInvalid));
     }
 
     // --- ByteFormat: min/max range ----------------------------------------

@@ -26,7 +26,8 @@ use gmc_identity::identity_core::Applied;
 use crate::error::{NodeError, NodeResult};
 use crate::runtime::{NodeRuntime, WireSignedOperation};
 use crate::testnet::{
-    CreateProposalRequest, ExplorerQueryParams, PublishBountyRequest, SubmitDeliverableRequest,
+    ConsumePriorityRequest, CreateProposalRequest, ExplorerQueryParams, PublishBountyRequest,
+    RecordContributionRequest, RegisterExternalFayRequest, SubmitDeliverableRequest,
     VoteBountyRequest, VoteProposalRequest,
 };
 use crate::workbench::MERITORA_DESKTOP_HTML;
@@ -380,8 +381,9 @@ fn write_html_response(stream: &mut TcpStream, html: &str) {
 }
 
 fn write_options_response(stream: &mut TcpStream) {
-    let header =
-        format!("HTTP/1.1 204 No Content\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n");
+    let header = format!(
+        "HTTP/1.1 204 No Content\r\n{CORS_HEADERS}Content-Length: 0\r\nConnection: close\r\n\r\n"
+    );
     let _ = stream.write_all(header.as_bytes());
     let _ = stream.flush();
 }
@@ -665,6 +667,102 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
                 ),
             }
         }
+        ("POST", "/api/fays/register") => {
+            let parsed: RegisterExternalFayRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_register_fay_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.register_external_fay(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
+        }
+        ("POST", "/api/merit/add") => {
+            let parsed: RecordContributionRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_record_contribution_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.record_contribution(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
+        }
+        ("POST", "/api/merit/consume") => {
+            let parsed: ConsumePriorityRequest = match serde_json::from_slice(&req.body) {
+                Ok(p) => p,
+                Err(e) => {
+                    write_json_response(
+                        stream,
+                        400,
+                        "Bad Request",
+                        &json!({ "error": "invalid_consume_priority_request", "reason": e.to_string() }),
+                    );
+                    return;
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                write_json_response(
+                    stream,
+                    500,
+                    "Internal Server Error",
+                    &json!({ "error": "poisoned" }),
+                );
+                return;
+            };
+            match guard.consume_priority(parsed) {
+                Ok(val) => write_json_response(stream, 200, "OK", &val),
+                Err(e) => write_json_response(
+                    stream,
+                    400,
+                    "Bad Request",
+                    &json!({ "error": e.to_string() }),
+                ),
+            }
+        }
         ("POST", "/submit_operation") => {
             let env: SubmitOpEnvelope = match serde_json::from_slice(&req.body) {
                 Ok(e) => e,
@@ -765,12 +863,7 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
             };
             match guard.produce_block(Timestamp::from_secs(params.timestamp_secs)) {
                 Ok(receipt) => {
-                    write_json_response(
-                        stream,
-                        200,
-                        "OK",
-                        &serde_json::to_value(receipt).unwrap(),
-                    );
+                    write_json_response(stream, 200, "OK", &serde_json::to_value(receipt).unwrap());
                 }
                 Err(e) => {
                     write_json_response(
@@ -803,12 +896,7 @@ fn handle_connection(stream: &mut TcpStream, runtime: &Arc<Mutex<NodeRuntime>>) 
             write_json_response(stream, 200, "OK", &resp);
         }
         _ => {
-            write_json_response(
-                stream,
-                404,
-                "Not Found",
-                &json!({ "error": "not_found" }),
-            );
+            write_json_response(stream, 404, "Not Found", &json!({ "error": "not_found" }));
         }
     }
 }
@@ -934,8 +1022,7 @@ fn dispatch_json_rpc(req: JsonRpcRequest, runtime: &Arc<Mutex<NodeRuntime>>) -> 
             }
         }
         "gmc_produceBlock" => {
-            let params: ProduceBlockParams =
-                serde_json::from_value(req.params).unwrap_or_default();
+            let params: ProduceBlockParams = serde_json::from_value(req.params).unwrap_or_default();
             let Ok(mut guard) = runtime.lock() else {
                 return json!({
                     "jsonrpc": "2.0",
@@ -1104,6 +1191,87 @@ fn dispatch_json_rpc(req: JsonRpcRequest, runtime: &Arc<Mutex<NodeRuntime>>) -> 
                     "jsonrpc": "2.0",
                     "id": id,
                     "error": { "code": -32008, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_registerExternalFay" => {
+            let parsed: RegisterExternalFayRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.register_external_fay(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32009, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_recordContribution" => {
+            let parsed: RecordContributionRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.record_contribution(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32010, "message": e.to_string() }
+                }),
+            }
+        }
+        "gmc_consumePriority" => {
+            let parsed: ConsumePriorityRequest = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32602, "message": e.to_string() }
+                    });
+                }
+            };
+            let Ok(mut guard) = runtime.lock() else {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32603, "message": "internal lock error" }
+                });
+            };
+            match guard.consume_priority(parsed) {
+                Ok(res) => json!({ "jsonrpc": "2.0", "id": id, "result": res }),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32011, "message": e.to_string() }
                 }),
             }
         }

@@ -44,7 +44,14 @@ fn sign_op(
 ) -> SignedOperation {
     let msg = canonical_encode_operation(target, &payload, nonce);
     let sig = ReferenceSigner.sign(sk, &msg).unwrap();
-    SignedOperation::new(target.clone(), payload, nonce, reference_tag(), vk.clone(), sig)
+    SignedOperation::new(
+        target.clone(),
+        payload,
+        nonce,
+        reference_tag(),
+        vk.clone(),
+        sig,
+    )
 }
 
 proptest! {

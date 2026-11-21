@@ -6,8 +6,10 @@
 //! Strictly uses `gmc-core` fixed-point `i128` (`Decimal` / `Ratio`, `SCALE = 1_000_000`)
 //! arithmetic — zero `f32`/`f64` floating-point types anywhere.
 
+use ed25519_dalek::VerifyingKey as DalekVerifyingKey;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use gmc_core::antifraud::{select_voters, Stakeholder, INTIMACY_EXCLUSION_THRESHOLD};
 use gmc_core::error::GmcError;
@@ -17,9 +19,9 @@ use gmc_core::relationship::{compute_intimacy, PrivacyTier, RelationshipType};
 use gmc_core::types::{ChainId, Decimal, FayID, Ratio, Timestamp};
 use gmc_identity::fayid_interop::to_fayid_canonical;
 use gmc_identity::identity_core::{Applied, OperationPayload};
-use gmc_identity::identity_id::IdentityId;
+use gmc_identity::identity_id::{derive_identity_id, IdentityId};
 use gmc_identity::ownership::{OwnerKind, OwnerRef};
-use gmc_identity::types::{IdentityKind, SchemeTag};
+use gmc_identity::types::{IdentityKind, SchemeTag, VerifyingKey};
 
 use crate::crypto::{keypair_from_seed, sign_ed25519_operation};
 use crate::error::{NodeError, NodeResult};
@@ -52,6 +54,8 @@ pub struct PersistedTestnetState {
     pub bounties: Vec<PersistedBounty>,
     #[serde(default)]
     pub proposals: Vec<PersistedGovernanceProposal>,
+    #[serde(default)]
+    pub priority_consumptions: Vec<PersistedPriorityConsumption>,
 }
 
 impl PersistedTestnetState {
@@ -60,6 +64,7 @@ impl PersistedTestnetState {
             && self.participants.is_empty()
             && self.bounties.is_empty()
             && self.proposals.is_empty()
+            && self.priority_consumptions.is_empty()
     }
 }
 
@@ -72,6 +77,27 @@ pub struct PersistedParticipantMeta {
     pub display_name: String,
     pub kind: String,
     pub role_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_fay_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedPriorityConsumption {
+    pub consumption_id: String,
+    pub fay_id: String,
+    pub canonical_fayid: String,
+    pub display_name: String,
+    pub priority_kind: String,
+    pub reason: String,
+    #[serde(default)]
+    pub proposal_id: Option<String>,
+    pub consumed_mu_raw: i128,
+    pub consumed_mu: String,
+    pub before_cur_merit_mu: String,
+    pub after_cur_merit_mu: String,
+    pub preserved_min_merit_mu: String,
+    pub block_height: u64,
+    pub timestamp_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,6 +269,67 @@ pub struct VoteProposalRequest {
     pub elapsed_days: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegisterExternalFayRequest {
+    #[serde(default)]
+    pub pubkey_hex: Option<String>,
+    #[serde(default)]
+    pub fay_id: Option<String>,
+    pub display_name: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub role_label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecordContributionRequest {
+    pub fay_id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    pub title: String,
+    #[serde(default = "default_domain_chain")]
+    pub domain_chain_id: String,
+    pub amount_mu: i64,
+    #[serde(default = "default_horizon_days")]
+    pub horizon_days: u64,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+/// Deterministic zero-floating-point amount deserializer accepting either a JSON
+/// integer (`12`) or a fixed-point decimal string (`"12.5"`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum DecimalAmountInput {
+    Int(i64),
+    Str(String),
+}
+
+impl DecimalAmountInput {
+    pub fn to_decimal(&self) -> Result<Decimal, String> {
+        match self {
+            DecimalAmountInput::Int(v) => Ok(Decimal::from_int(*v)),
+            DecimalAmountInput::Str(s) => Decimal::from_str(s)
+                .ok_or_else(|| format!("invalid fixed-point decimal string '{s}'")),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConsumePriorityRequest {
+    pub fay_id: String,
+    pub priority_kind: String,
+    pub amount_mu: DecimalAmountInput,
+    pub reason: String,
+    #[serde(default)]
+    pub proposal_id: Option<String>,
+    #[serde(default)]
+    pub approve: Option<bool>,
+}
+
 fn rel_type_label(rt: RelationshipType) -> &'static str {
     match rt {
         RelationshipType::Kinship => "kinship",
@@ -335,14 +422,62 @@ impl NodeRuntime {
 
         // 3. Register 8 independent domain stakeholders (`>= 7` required by `MIN_VOTER_SET_SIZE`)
         let peer_specs: [([u8; 32], &str, &str, i64, u64); 8] = [
-            ([0xE1u8; 32], "Dr. Maya Patel", "Open Science Reviewer #1", 65, 180),
-            ([0xE2u8; 32], "Kenji Sato", "Distributed Systems Steward #2", 55, 180),
-            ([0xE3u8; 32], "Elena Rostova", "Protocol Security Auditor #3", 50, 90),
-            ([0xE4u8; 32], "Carlos Mendez", "Public Commons Curator #4", 45, 90),
-            ([0xE5u8; 32], "Dr. Amara Okafor", "Reproducibility Fellow #5", 40, 180),
-            ([0xE6u8; 32], "Hannah Weber", "Civic Data Maintainer #6", 35, 90),
-            ([0xE7u8; 32], "Liam O'Connor", "Open Standards Maintainer #7", 30, 90),
-            ([0xE8u8; 32], "Soo-Jin Park", "Independent Verification Node #8", 28, 180),
+            (
+                [0xE1u8; 32],
+                "Dr. Maya Patel",
+                "Open Science Reviewer #1",
+                65,
+                180,
+            ),
+            (
+                [0xE2u8; 32],
+                "Kenji Sato",
+                "Distributed Systems Steward #2",
+                55,
+                180,
+            ),
+            (
+                [0xE3u8; 32],
+                "Elena Rostova",
+                "Protocol Security Auditor #3",
+                50,
+                90,
+            ),
+            (
+                [0xE4u8; 32],
+                "Carlos Mendez",
+                "Public Commons Curator #4",
+                45,
+                90,
+            ),
+            (
+                [0xE5u8; 32],
+                "Dr. Amara Okafor",
+                "Reproducibility Fellow #5",
+                40,
+                180,
+            ),
+            (
+                [0xE6u8; 32],
+                "Hannah Weber",
+                "Civic Data Maintainer #6",
+                35,
+                90,
+            ),
+            (
+                [0xE7u8; 32],
+                "Liam O'Connor",
+                "Open Standards Maintainer #7",
+                30,
+                90,
+            ),
+            (
+                [0xE8u8; 32],
+                "Soo-Jin Park",
+                "Independent Verification Node #8",
+                28,
+                180,
+            ),
         ];
 
         let mut participants = vec![
@@ -413,7 +548,12 @@ impl NodeRuntime {
                 Decimal::from_int(calibrated_influence_duration_secs(horizon_d) as i64),
                 t_genesis,
             )?;
-            participants.push(build_participant_meta(&pid, IdentityKind::IFay, name, role)?);
+            participants.push(build_participant_meta(
+                &pid,
+                IdentityKind::IFay,
+                name,
+                role,
+            )?);
             peer_ids.push(pid);
         }
 
@@ -470,7 +610,8 @@ impl NodeRuntime {
                 PrivacyTier::ExistencePublic,
                 t_early,
             )?;
-            let mod_depth = Ratio::new(Decimal::from_raw(400_000 + (idx as i128) * 100_000)).unwrap();
+            let mod_depth =
+                Ratio::new(Decimal::from_raw(400_000 + (idx as i128) * 100_000)).unwrap();
             self.relationships_mut()
                 .record_interaction(&alice_fay, &peer_fay, mod_depth, t_genesis)?;
             self.relationships_mut()
@@ -491,9 +632,12 @@ impl NodeRuntime {
                 reward_mu: 60,
                 horizon_days: 90,
                 deliverable_summary: Some(
-                    "Submitted reproducible benchmark suite + 20 Ed25519 JCS test vectors".to_string(),
+                    "Submitted reproducible benchmark suite + 20 Ed25519 JCS test vectors"
+                        .to_string(),
                 ),
-                evidence_uri: Some("https://github.com/ChainMode/coFay/tree/main/vectors".to_string()),
+                evidence_uri: Some(
+                    "https://github.com/ChainMode/coFay/tree/main/vectors".to_string(),
+                ),
             },
             false,
         )?;
@@ -534,12 +678,24 @@ impl NodeRuntime {
         Timestamp::from_secs(base.saturating_add(offset_secs))
     }
 
-    fn resolve_participant_by_any_id(&self, raw_id: &str) -> Option<(IdentityId, PersistedParticipantMeta)> {
+    fn resolve_participant_by_any_id(
+        &self,
+        raw_id: &str,
+    ) -> Option<(IdentityId, PersistedParticipantMeta)> {
         let trimmed = raw_id.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
         for meta in &self.testnet_state().participants {
-            if meta.canonical_fayid == trimmed || meta.fay_id == trimmed {
+            if meta.canonical_fayid == trimmed
+                || meta.fay_id == trimmed
+                || meta.external_fay_id.as_deref() == Some(trimmed)
+            {
                 return Some((
-                    IdentityId::new(SchemeTag::new(meta.scheme_tag.clone()), meta.key_repr.clone()),
+                    IdentityId::new(
+                        SchemeTag::new(meta.scheme_tag.clone()),
+                        meta.key_repr.clone(),
+                    ),
                     meta.clone(),
                 ));
             }
@@ -561,6 +717,7 @@ impl NodeRuntime {
                             IdentityKind::CoFay => "cofay".into(),
                         },
                         role_label: "Registered GMChain Identity".into(),
+                        external_fay_id: None,
                     },
                 ));
             }
@@ -570,6 +727,7 @@ impl NodeRuntime {
 
     /// Computes full Explorer & `MeritPocket` state at `base_timestamp + offset_secs`
     /// (`GET /api/explorer`, `gmc_explorer`).
+    #[allow(clippy::too_many_lines)]
     pub fn explorer_snapshot(&self, params: &ExplorerQueryParams) -> Value {
         let total_offset_secs = params
             .offset_secs
@@ -585,7 +743,10 @@ impl NodeRuntime {
                 continue;
             };
             let cur = pocket.cur_merit(eval_ts);
-            total_network_merit = total_network_merit.checked_add(cur).unwrap_or(total_network_merit);
+            let consumable = pocket.consumable_merit(eval_ts);
+            total_network_merit = total_network_merit
+                .checked_add(cur)
+                .unwrap_or(total_network_merit);
 
             let meta = self
                 .testnet_state()
@@ -607,6 +768,7 @@ impl NodeRuntime {
                 .as_ref()
                 .map(|m| m.role_label.clone())
                 .unwrap_or_else(|| "Participant".to_string());
+            let external_fay_id = meta.as_ref().and_then(|m| m.external_fay_id.clone());
             let kind_str = match ident.kind {
                 IdentityKind::IFay => "ifay",
                 IdentityKind::CoFay => "cofay",
@@ -630,19 +792,42 @@ impl NodeRuntime {
                 })
                 .collect();
 
-            pockets_raw.push((cur, canonical_fayid, fay.as_str().to_string(), display_name, kind_str, role_label, pocket.min_merit(), batches_json));
+            pockets_raw.push((
+                cur,
+                consumable,
+                canonical_fayid,
+                fay.as_str().to_string(),
+                external_fay_id,
+                display_name,
+                kind_str,
+                role_label,
+                pocket.min_merit(),
+                batches_json,
+            ));
         }
 
         let pockets_json: Vec<Value> = pockets_raw
             .into_iter()
             .map(
-                |(cur, canonical_fayid, fay_id, display_name, kind_str, role_label, min_merit, batches)| {
+                |(
+                    cur,
+                    consumable,
+                    canonical_fayid,
+                    fay_id,
+                    external_fay_id,
+                    display_name,
+                    kind_str,
+                    role_label,
+                    min_merit,
+                    batches,
+                )| {
                     let voice_share = if total_network_merit.is_positive() {
-                        cur.checked_div(total_network_merit).unwrap_or(Decimal::ZERO)
+                        cur.checked_div(total_network_merit)
+                            .unwrap_or(Decimal::ZERO)
                     } else {
                         Decimal::ZERO
                     };
-                    json!({
+                    let mut obj = json!({
                         "fay_id": canonical_fayid,
                         "internal_fay_id": fay_id,
                         "display_name": display_name,
@@ -650,12 +835,18 @@ impl NodeRuntime {
                         "role_label": role_label,
                         "cur_merit_mu": format_decimal(cur),
                         "cur_merit_raw": cur.raw(),
+                        "consumable_merit_mu": format_decimal(consumable),
+                        "consumable_merit_raw": consumable.raw(),
                         "min_merit_floor_mu": format_decimal(min_merit),
                         "min_merit_floor_raw": min_merit.raw(),
                         "governance_voice_ratio": format_decimal(voice_share),
                         "governance_voice_raw": voice_share.raw(),
                         "batches": batches,
-                    })
+                    });
+                    if let Some(ext) = external_fay_id {
+                        obj["external_fay_id"] = Value::String(ext);
+                    }
+                    obj
                 },
             )
             .collect();
@@ -681,6 +872,7 @@ impl NodeRuntime {
             "recent_blocks": recent_blocks,
             "bounties": self.testnet_state().bounties,
             "proposals": self.testnet_state().proposals,
+            "priority_consumptions": self.testnet_state().priority_consumptions,
         })
     }
 
@@ -733,16 +925,14 @@ impl NodeRuntime {
                 continue;
             }
 
-            let (intimacy_ratio, rel_label) = match self
-                .relationships()
-                .get_edge(&assignee_fay, &cand_fay)
-            {
-                Some(edge) => (
-                    compute_intimacy(edge, now),
-                    rel_type_label(edge.relationship_type).to_string(),
-                ),
-                None => (Ratio::ZERO, "none".to_string()),
-            };
+            let (intimacy_ratio, rel_label) =
+                match self.relationships().get_edge(&assignee_fay, &cand_fay) {
+                    Some(edge) => (
+                        compute_intimacy(edge, now),
+                        rel_type_label(edge.relationship_type).to_string(),
+                    ),
+                    None => (Ratio::ZERO, "none".to_string()),
+                };
 
             let cand_canon = self
                 .testnet_state()
@@ -778,8 +968,10 @@ impl NodeRuntime {
             stakeholders_for_antifraud.len().max(7),
             0xB007_0000u64.wrapping_add(next_seq),
         )?;
-        let eligible_voter_fay_ids: Vec<String> =
-            selected_fays.into_iter().map(|f| f.as_str().to_string()).collect();
+        let eligible_voter_fay_ids: Vec<String> = selected_fays
+            .into_iter()
+            .map(|f| f.as_str().to_string())
+            .collect();
 
         let bounty_id = format!("bounty-{next_seq:03}");
         let has_deliverable = req
@@ -828,7 +1020,10 @@ impl NodeRuntime {
     }
 
     /// Attaches or updates deliverable summary/evidence on a Contribution Bounty and opens voting.
-    pub fn submit_bounty_deliverable(&mut self, req: SubmitDeliverableRequest) -> NodeResult<Value> {
+    pub fn submit_bounty_deliverable(
+        &mut self,
+        req: SubmitDeliverableRequest,
+    ) -> NodeResult<Value> {
         if req.deliverable_summary.trim().is_empty() {
             return Err(NodeError::RpcInvalidRequest(
                 "deliverable_summary must not be empty".into(),
@@ -1165,7 +1360,9 @@ impl NodeRuntime {
 
         let eval_ts = match req.elapsed_days {
             Some(days) => self.eval_timestamp(days.saturating_mul(86_400)),
-            None => Timestamp::from_secs(self.testnet_state().proposals[prop_idx].eval_timestamp_secs),
+            None => {
+                Timestamp::from_secs(self.testnet_state().proposals[prop_idx].eval_timestamp_secs)
+            }
         };
 
         // Build full electorate at `eval_ts`
@@ -1316,6 +1513,606 @@ impl NodeRuntime {
             "state_root_hex": self.state_root_hex(),
         }))
     }
+
+    fn build_external_fay_response(
+        &self,
+        ident_id: &IdentityId,
+        meta: &PersistedParticipantMeta,
+        already_registered: bool,
+        now: Timestamp,
+    ) -> NodeResult<Value> {
+        let fay = ident_id.to_fay_id();
+        let pocket = self
+            .identities()
+            .binding
+            .pocket_by_key(&fay)
+            .ok_or(NodeError::Core(GmcError::NotRegistered))?;
+        let cur = pocket.cur_merit(now);
+        let consumable = pocket.consumable_merit(now);
+        let floor = pocket.min_merit();
+        let external_or_canonical = meta
+            .external_fay_id
+            .clone()
+            .unwrap_or_else(|| meta.canonical_fayid.clone());
+
+        Ok(json!({
+            "ok": true,
+            "already_registered": already_registered,
+            "fay_id": external_or_canonical,
+            "canonical_fayid": meta.canonical_fayid,
+            "display_name": meta.display_name,
+            "cur_merit_mu": format_decimal(cur),
+            "cur_merit_raw": cur.raw(),
+            "consumable_merit_mu": format_decimal(consumable),
+            "consumable_merit_raw": consumable.raw(),
+            "min_merit_floor_mu": format_decimal(floor),
+            "min_merit_floor_raw": floor.raw(),
+            "block_height": self.block_height(),
+            "state_root_hex": self.state_root_hex(),
+        }))
+    }
+
+    /// Registers an external `FayGer` `iFay` or `coFay` on `GMChain`, binds its `MeritPocket`
+    /// with an initial `5 μ` (`90d` horizon) welcome batch, and seals a BFT block
+    /// (`POST /api/fays/register`, `gmc_registerExternalFay`).
+    #[allow(clippy::too_many_lines)]
+    pub fn register_external_fay(&mut self, req: RegisterExternalFayRequest) -> NodeResult<Value> {
+        let display_name = req.display_name.trim().to_string();
+        if display_name.is_empty() {
+            return Err(NodeError::RpcInvalidRequest(
+                "display_name must not be empty".into(),
+            ));
+        }
+
+        let clean_ext_fay_id = req
+            .fay_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let now = self.eval_timestamp(0);
+
+        if let Some(ref ext_id) = clean_ext_fay_id {
+            if let Some((existing_id, existing_meta)) = self.resolve_participant_by_any_id(ext_id) {
+                return self.build_external_fay_response(&existing_id, &existing_meta, true, now);
+            }
+        }
+
+        let target_kind = if req
+            .kind
+            .as_deref()
+            .is_some_and(|k| k.trim().eq_ignore_ascii_case("cofay"))
+        {
+            IdentityKind::CoFay
+        } else {
+            IdentityKind::IFay
+        };
+
+        let fallback_label = clean_ext_fay_id.as_deref().unwrap_or(&display_name);
+        let vk = derive_or_parse_external_vk(req.pubkey_hex.as_deref(), fallback_label);
+        let cand_id = derive_identity_id(&self.identities().registry, &SchemeTag::ed25519(), &vk)?;
+
+        if self.identities().identities.contains(&cand_id) {
+            let fay_str = cand_id.to_fay_id().as_str().to_string();
+            let mut updated_meta = None;
+            if let Some(existing_meta) = self
+                .testnet_state_mut()
+                .participants
+                .iter_mut()
+                .find(|m| m.fay_id == fay_str)
+            {
+                if existing_meta.external_fay_id.is_none() && clean_ext_fay_id.is_some() {
+                    existing_meta.external_fay_id = clean_ext_fay_id.clone();
+                }
+                updated_meta = Some(existing_meta.clone());
+            }
+            if updated_meta.is_some() {
+                self.persist_testnet_wal("bind_external_fay_alias")?;
+            }
+            let meta = match updated_meta {
+                Some(m) => m,
+                None => {
+                    let (_, m) = self
+                        .resolve_participant_by_any_id(&cand_id.canonical())
+                        .ok_or(NodeError::Core(GmcError::NotRegistered))?;
+                    m
+                }
+            };
+            return self.build_external_fay_response(&cand_id, &meta, true, now);
+        }
+
+        let ident_id = match target_kind {
+            IdentityKind::IFay => self.register_ifay(&vk, now)?,
+            IdentityKind::CoFay => {
+                let (steward_sk, steward_vk) = keypair_from_seed(&[0xC2u8; 32]);
+                let steward_id = self.register_ifay(&steward_vk, now)?;
+                let next_nonce = self
+                    .identities()
+                    .identities
+                    .get(&steward_id)
+                    .map(|rec| rec.applied_nonce + 1)
+                    .unwrap_or(1);
+                let slug: String = display_name
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() {
+                            c.to_ascii_lowercase()
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect::<String>()
+                    .trim_matches('-')
+                    .to_string();
+                let owner_id = if slug.is_empty() {
+                    format!("org_fayger-seat-{next_nonce}")
+                } else {
+                    format!("org_{slug}-{next_nonce}")
+                };
+                let create_op = sign_ed25519_operation(
+                    &steward_sk,
+                    &steward_vk,
+                    steward_id,
+                    OperationPayload::CreateCoFay {
+                        owner: OwnerRef::new(owner_id, OwnerKind::Organization),
+                        new_cofay_key: vk,
+                    },
+                    next_nonce,
+                )?;
+                match self.submit_signed_operation(create_op, now)? {
+                    Applied::CoFayCreated(cid) => cid,
+                    _ => {
+                        return Err(NodeError::ConsensusInvalid(
+                            "expected CoFayCreated during external coFay registration".into(),
+                        ))
+                    }
+                }
+            }
+        };
+
+        // Seed initial welcome batch of 5 μ (90d horizon) so curMerit = 5.0 μ,
+        // minMerit = 2.718281 μ, consumable = 2.281719 μ.
+        self.submit_contribution(
+            &ident_id,
+            ChainId::new("gmc-open-science"),
+            Decimal::from_int(5),
+            Decimal::from_int(calibrated_influence_duration_secs(90) as i64),
+            now,
+        )?;
+
+        let role_label = req
+            .role_label
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| match target_kind {
+                IdentityKind::IFay => "External FayGer Identity (iFay)".to_string(),
+                IdentityKind::CoFay => "External FayGer Role Seat (coFay)".to_string(),
+            });
+
+        let mut meta = build_participant_meta(&ident_id, target_kind, &display_name, &role_label)?;
+        meta.external_fay_id = clean_ext_fay_id;
+        self.testnet_state_mut().participants.push(meta.clone());
+
+        self.produce_block(now)?;
+        self.persist_testnet_wal("register_external_fay")?;
+
+        self.build_external_fay_response(&ident_id, &meta, false, now)
+    }
+
+    /// Records a verified contribution for an external or native `iFay`/`coFay` after
+    /// running the anti-collusion independent stakeholder filter (`intimacy <= 0.90`),
+    /// minting a decaying `MeriToken (μ)` batch, anchoring on L1, and sealing a block
+    /// (`POST /api/merit/add`, `gmc_recordContribution`).
+    #[allow(clippy::too_many_lines)]
+    pub fn record_contribution(&mut self, req: RecordContributionRequest) -> NodeResult<Value> {
+        let fay_id_trimmed = req.fay_id.trim().to_string();
+        if fay_id_trimmed.is_empty() {
+            return Err(NodeError::RpcInvalidRequest(
+                "fay_id must not be empty".into(),
+            ));
+        }
+        let title_trimmed = req.title.trim().to_string();
+        if title_trimmed.is_empty() {
+            return Err(NodeError::RpcInvalidRequest(
+                "title must not be empty".into(),
+            ));
+        }
+        if req.amount_mu <= 0 || req.amount_mu > 100_000 {
+            return Err(NodeError::Core(GmcError::InvalidMintAmount));
+        }
+
+        if self
+            .resolve_participant_by_any_id(&fay_id_trimmed)
+            .is_none()
+        {
+            let fallback_name = req
+                .display_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&fay_id_trimmed)
+                .to_string();
+            self.register_external_fay(RegisterExternalFayRequest {
+                pubkey_hex: None,
+                fay_id: Some(fay_id_trimmed.clone()),
+                display_name: fallback_name,
+                kind: req.kind.clone(),
+                role_label: None,
+            })?;
+        }
+
+        let (contributor_ident, contributor_meta) = self
+            .resolve_participant_by_any_id(&fay_id_trimmed)
+            .ok_or(NodeError::Core(GmcError::NotRegistered))?;
+
+        let now = self.eval_timestamp(0);
+        let contributor_fay = contributor_ident.to_fay_id();
+
+        // Anti-collusion independent stakeholder check (`intimacy <= 0.90`, `>= 7` peers)
+        let mut stakeholders_for_antifraud = Vec::new();
+        for (cand_id, _) in self.identities().identities.iter() {
+            if cand_id == &contributor_ident {
+                continue;
+            }
+            let cand_fay = cand_id.to_fay_id();
+            let pocket_merit = self
+                .identities()
+                .binding
+                .pocket_by_key(&cand_fay)
+                .map(|p| p.cur_merit(now))
+                .unwrap_or(Decimal::ZERO);
+            if !pocket_merit.is_positive() {
+                continue;
+            }
+            let intimacy_ratio = match self.relationships().get_edge(&contributor_fay, &cand_fay) {
+                Some(edge) => compute_intimacy(edge, now),
+                None => Ratio::ZERO,
+            };
+            stakeholders_for_antifraud.push(Stakeholder::new(cand_fay, intimacy_ratio));
+        }
+        let _independent_voters = select_voters(
+            &stakeholders_for_antifraud,
+            stakeholders_for_antifraud.len().max(7),
+            0xC0DE_0000u64.wrapping_add(self.l2().next_record_seq()),
+        )?;
+
+        let horizon_days = req.horizon_days.clamp(1, 3_650);
+        let influence_duration_secs = calibrated_influence_duration_secs(horizon_days);
+        let amount_dec = Decimal::from_int(req.amount_mu);
+        let domain_chain = if req.domain_chain_id.trim().is_empty() {
+            default_domain_chain()
+        } else {
+            req.domain_chain_id.trim().to_string()
+        };
+
+        let contrib_receipt = self.submit_contribution(
+            &contributor_ident,
+            ChainId::new(domain_chain),
+            amount_dec,
+            Decimal::from_int(influence_duration_secs as i64),
+            now,
+        )?;
+
+        let vote_subject = match req.summary.as_deref().map(str::trim) {
+            Some(s) if !s.is_empty() => format!("{title_trimmed}: {s}"),
+            _ => title_trimmed,
+        };
+        self.anchor_l1_vote_result(VoteResultRecord::new(
+            format!("fayger-contrib:{}", contrib_receipt.batch_id),
+            vote_subject,
+            true,
+            now,
+        ));
+
+        let block_receipt = self.produce_block(now)?;
+        self.persist_testnet_wal("record_contribution")?;
+
+        let pocket = self
+            .identities()
+            .binding
+            .pocket_by_key(&contributor_fay)
+            .ok_or(NodeError::Core(GmcError::NotRegistered))?;
+        let cur = pocket.cur_merit(now);
+        let consumable = pocket.consumable_merit(now);
+        let floor = pocket.min_merit();
+        let external_or_canonical = contributor_meta
+            .external_fay_id
+            .clone()
+            .unwrap_or_else(|| contributor_meta.canonical_fayid.clone());
+
+        Ok(json!({
+            "ok": true,
+            "fay_id": external_or_canonical,
+            "canonical_fayid": contributor_meta.canonical_fayid,
+            "batch_id": contrib_receipt.batch_id,
+            "minted_mu": format_decimal(amount_dec),
+            "cur_merit_mu": format_decimal(cur),
+            "cur_merit_raw": cur.raw(),
+            "consumable_merit_mu": format_decimal(consumable),
+            "consumable_merit_raw": consumable.raw(),
+            "min_merit_floor_mu": format_decimal(floor),
+            "min_merit_floor_raw": floor.raw(),
+            "block_height": block_receipt.block_height,
+            "state_root_hex": self.state_root_hex(),
+        }))
+    }
+
+    /// Consumes (`消费/消减`) active decaying `MeriToken (μ)` surplus from an `iFay`/`coFay`
+    /// pocket for priority or voting priority without transferring to any account and without
+    /// ever reducing `minMerit` (`POST /api/merit/consume`, `gmc_consumePriority`).
+    #[allow(clippy::too_many_lines)]
+    pub fn consume_priority(&mut self, req: ConsumePriorityRequest) -> NodeResult<Value> {
+        let fay_id_trimmed = req.fay_id.trim().to_string();
+        if fay_id_trimmed.is_empty() {
+            return Err(NodeError::RpcInvalidRequest(
+                "fay_id must not be empty".into(),
+            ));
+        }
+        let priority_kind = req.priority_kind.trim().to_string();
+        if priority_kind.is_empty() {
+            return Err(NodeError::RpcInvalidRequest(
+                "priority_kind must not be empty".into(),
+            ));
+        }
+        let reason = req.reason.trim().to_string();
+        if reason.is_empty() {
+            return Err(NodeError::RpcInvalidRequest(
+                "reason must not be empty".into(),
+            ));
+        }
+
+        let amount_dec = req
+            .amount_mu
+            .to_decimal()
+            .map_err(NodeError::RpcInvalidRequest)?;
+        if !amount_dec.is_positive() {
+            return Err(NodeError::Core(GmcError::InvalidMintAmount));
+        }
+
+        let Some((ident_id, meta)) = self.resolve_participant_by_any_id(&fay_id_trimmed) else {
+            return Err(NodeError::Core(GmcError::NotRegistered));
+        };
+
+        let now = self.eval_timestamp(0);
+        let fay = ident_id.to_fay_id();
+
+        let (before_cur, floor, after_cur, consumable_rem) = {
+            let pocket = self
+                .identities_mut()
+                .binding
+                .pocket_by_key_mut(&fay)
+                .ok_or(NodeError::Core(GmcError::NotRegistered))?;
+            let before = pocket.cur_merit(now);
+            let floor_val = pocket.min_merit();
+            pocket.consume_priority(amount_dec, now)?;
+            let after = pocket.cur_merit(now);
+            let rem = pocket.consumable_merit(now);
+            debug_assert_eq!(pocket.min_merit(), floor_val);
+            (before, floor_val, after, rem)
+        };
+
+        let clean_proposal_id = req
+            .proposal_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        // If `proposal_id` is supplied and exists, also record the participant's governance ballot!
+        let mut newly_passed_prop_idx = None;
+        if let Some(ref pid) = clean_proposal_id {
+            if let Some(prop_idx) = self
+                .testnet_state()
+                .proposals
+                .iter()
+                .position(|p| p.proposal_id == *pid)
+            {
+                let approve_flag = req.approve.unwrap_or(true);
+                let eval_ts = Timestamp::from_secs(
+                    self.testnet_state().proposals[prop_idx].eval_timestamp_secs,
+                );
+
+                let mut electorate_voters = Vec::new();
+                let mut total_merit = Decimal::ZERO;
+                for (id, _) in self.identities().identities.iter() {
+                    let cand_fay = id.to_fay_id();
+                    if let Some(p) = self.identities().binding.pocket_by_key(&cand_fay) {
+                        let c = p.cur_merit(eval_ts);
+                        if c.is_positive() {
+                            total_merit = total_merit.checked_add(c).unwrap_or(total_merit);
+                            electorate_voters.push(Voter::new(cand_fay, c));
+                        }
+                    }
+                }
+
+                if total_merit.is_positive() {
+                    let voter_cur = self
+                        .identities()
+                        .binding
+                        .pocket_by_key(&fay)
+                        .map(|p| p.cur_merit(eval_ts))
+                        .unwrap_or(Decimal::ZERO);
+                    let voter_ratio = voter_cur.checked_div(total_merit).unwrap_or(Decimal::ZERO);
+
+                    let new_ballot = PersistedProposalBallot {
+                        voter_fay_id: fay.as_str().to_string(),
+                        voter_canonical_fayid: meta.canonical_fayid.clone(),
+                        voter_display_name: meta.display_name.clone(),
+                        approve: approve_flag,
+                        decayed_merit_raw: voter_cur.raw(),
+                        weight_ratio_raw: voter_ratio.raw(),
+                        voted_at_secs: eval_ts.as_secs(),
+                    };
+
+                    {
+                        let prop_mut = &mut self.testnet_state_mut().proposals[prop_idx];
+                        prop_mut.total_electorate_merit_raw = total_merit.raw();
+                        if let Some(existing) = prop_mut
+                            .ballots
+                            .iter_mut()
+                            .find(|b| b.voter_fay_id == new_ballot.voter_fay_id)
+                        {
+                            *existing = new_ballot;
+                        } else {
+                            prop_mut.ballots.push(new_ballot);
+                        }
+                        let mut refreshed = Vec::with_capacity(prop_mut.ballots.len());
+                        for mut b in prop_mut.ballots.clone() {
+                            let cur_b = self
+                                .identities()
+                                .binding
+                                .pocket_by_key(&FayID::new(b.voter_fay_id.clone()))
+                                .map(|p| p.cur_merit(eval_ts))
+                                .unwrap_or(Decimal::ZERO);
+                            b.decayed_merit_raw = cur_b.raw();
+                            b.weight_ratio_raw = cur_b
+                                .checked_div(total_merit)
+                                .unwrap_or(Decimal::ZERO)
+                                .raw();
+                            refreshed.push(b);
+                        }
+                        self.testnet_state_mut().proposals[prop_idx].ballots = refreshed;
+                    }
+
+                    let prop_snap = self.testnet_state().proposals[prop_idx].clone();
+                    if let Some(threshold) = Ratio::new(Decimal::from_raw(prop_snap.threshold_raw))
+                    {
+                        let mut gov = GovernanceModule::new();
+                        if let Ok(vote_id) = gov.open_vote(
+                            prop_snap.proposal_id.clone(),
+                            threshold,
+                            electorate_voters,
+                        ) {
+                            let mut approve_sum = Decimal::ZERO;
+                            let mut reject_sum = Decimal::ZERO;
+                            for b in &prop_snap.ballots {
+                                let m = Decimal::from_raw(b.decayed_merit_raw);
+                                if b.approve {
+                                    approve_sum = approve_sum.checked_add(m).unwrap_or(approve_sum);
+                                } else {
+                                    reject_sum = reject_sum.checked_add(m).unwrap_or(reject_sum);
+                                }
+                                let _ = gov.cast_vote(
+                                    vote_id,
+                                    &FayID::new(b.voter_fay_id.clone()),
+                                    b.approve,
+                                );
+                            }
+                            if let Ok(outcome) = gov.tally(vote_id) {
+                                let was_already_passed = prop_snap.status == "passed";
+                                let prop_mut = &mut self.testnet_state_mut().proposals[prop_idx];
+                                prop_mut.approve_merit_raw = approve_sum.raw();
+                                prop_mut.reject_merit_raw = reject_sum.raw();
+                                prop_mut.approval_ratio_raw = outcome.approval_ratio.value().raw();
+                                if outcome.passed {
+                                    prop_mut.status = "passed".to_string();
+                                    if !was_already_passed {
+                                        newly_passed_prop_idx = Some(prop_idx);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(pidx) = newly_passed_prop_idx {
+            let ptitle = self.testnet_state().proposals[pidx].title.clone();
+            let pid = self.testnet_state().proposals[pidx].proposal_id.clone();
+            self.anchor_l1_vote_result(VoteResultRecord::new(
+                format!("gov-proposal:{pid}"),
+                ptitle,
+                true,
+                now,
+            ));
+        }
+
+        let seq = self.testnet_state().priority_consumptions.len() + 1;
+        let consumption_id = format!("cons-{seq:03}");
+        self.anchor_l1_vote_result(VoteResultRecord::new(
+            format!("priority-consume:{consumption_id}"),
+            format!(
+                "{priority_kind}:{}:-{}mu:{reason}",
+                meta.canonical_fayid,
+                format_decimal(amount_dec)
+            ),
+            true,
+            now,
+        ));
+
+        let block_receipt = self.produce_block(now)?;
+        if let Some(pidx) = newly_passed_prop_idx {
+            self.testnet_state_mut().proposals[pidx].anchored_block_height =
+                Some(block_receipt.block_height);
+        }
+
+        let external_or_canonical = meta
+            .external_fay_id
+            .clone()
+            .unwrap_or_else(|| meta.canonical_fayid.clone());
+        let record = PersistedPriorityConsumption {
+            consumption_id: consumption_id.clone(),
+            fay_id: external_or_canonical.clone(),
+            canonical_fayid: meta.canonical_fayid.clone(),
+            display_name: meta.display_name,
+            priority_kind: priority_kind.clone(),
+            reason,
+            proposal_id: clean_proposal_id,
+            consumed_mu_raw: amount_dec.raw(),
+            consumed_mu: format_decimal(amount_dec),
+            before_cur_merit_mu: format_decimal(before_cur),
+            after_cur_merit_mu: format_decimal(after_cur),
+            preserved_min_merit_mu: format_decimal(floor),
+            block_height: block_receipt.block_height,
+            timestamp_secs: now.as_secs(),
+        };
+        self.testnet_state_mut()
+            .priority_consumptions
+            .push(record.clone());
+        self.persist_testnet_wal("consume_priority")?;
+
+        Ok(json!({
+            "ok": true,
+            "consumption_id": consumption_id,
+            "fay_id": external_or_canonical,
+            "canonical_fayid": meta.canonical_fayid,
+            "priority_kind": priority_kind,
+            "consumed_mu": format_decimal(amount_dec),
+            "consumed_mu_raw": amount_dec.raw(),
+            "before_cur_merit_mu": format_decimal(before_cur),
+            "before_cur_merit_raw": before_cur.raw(),
+            "after_cur_merit_mu": format_decimal(after_cur),
+            "after_cur_merit_raw": after_cur.raw(),
+            "consumable_merit_mu": format_decimal(consumable_rem),
+            "consumable_merit_raw": consumable_rem.raw(),
+            "min_merit_floor_mu": format_decimal(floor),
+            "min_merit_floor_raw": floor.raw(),
+            "block_height": block_receipt.block_height,
+            "state_root_hex": self.state_root_hex(),
+            "record": record,
+        }))
+    }
+}
+
+fn derive_or_parse_external_vk(pubkey_hex: Option<&str>, fallback_seed_tag: &str) -> VerifyingKey {
+    if let Some(raw_hex) = pubkey_hex {
+        let trimmed = raw_hex.trim();
+        if trimmed.len() == 64 {
+            if let Ok(bytes) = hex::decode(trimmed) {
+                if let Ok(arr) = <[u8; 32]>::try_from(bytes.as_slice()) {
+                    if DalekVerifyingKey::from_bytes(&arr).is_ok() {
+                        return VerifyingKey::new(bytes);
+                    }
+                }
+            }
+        }
+    }
+    let seed: [u8; 32] = Sha256::digest(fallback_seed_tag.as_bytes()).into();
+    let (_sk, vk) = keypair_from_seed(&seed);
+    vk
 }
 
 fn build_participant_meta(
@@ -1336,5 +2133,6 @@ fn build_participant_meta(
             IdentityKind::CoFay => "cofay".into(),
         },
         role_label: role_label.to_string(),
+        external_fay_id: None,
     })
 }

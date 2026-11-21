@@ -516,12 +516,16 @@ impl L1Settlement {
     }
 
     /// Ordered iterator over all stored chain registration records.
-    pub fn chain_registrations(&self) -> impl Iterator<Item = (&ChainId, &ChainRegistrationRecord)> {
+    pub fn chain_registrations(
+        &self,
+    ) -> impl Iterator<Item = (&ChainId, &ChainRegistrationRecord)> {
         self.chain_registrations.iter()
     }
 
     /// Ordered iterator over all stored identity registration records.
-    pub fn identity_registrations(&self) -> impl Iterator<Item = (&FayID, &IdentityRegistrationRecord)> {
+    pub fn identity_registrations(
+        &self,
+    ) -> impl Iterator<Item = (&FayID, &IdentityRegistrationRecord)> {
         self.identity_registrations.iter()
     }
 

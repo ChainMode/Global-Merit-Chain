@@ -597,17 +597,15 @@ impl IdentityState {
                         OperationPayload::RotateKey { .. }
                             | OperationPayload::ConfigureGuardians { .. }
                     );
-                let on_behalf = authorizes(
-                    &op.declared_target,
-                    &op.scheme_tag,
-                    &op.verifying_key,
-                    &self.registry,
-                    &self.ownership,
-                    &self.delegates,
-                ) && !matches!(
-                    op.payload,
-                    OperationPayload::ConfigureGuardians { .. }
-                );
+                let on_behalf =
+                    authorizes(
+                        &op.declared_target,
+                        &op.scheme_tag,
+                        &op.verifying_key,
+                        &self.registry,
+                        &self.ownership,
+                        &self.delegates,
+                    ) && !matches!(op.payload, OperationPayload::ConfigureGuardians { .. });
                 if !(own_state || active_device || on_behalf) {
                     return Err(IdentityError::UnauthorizedActor);
                 }

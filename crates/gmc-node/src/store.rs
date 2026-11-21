@@ -1076,10 +1076,7 @@ impl PersistedPenaltyState {
                 }),
                 None => None,
             };
-            let appeal = match (
-                c.appeal_submitted_at_secs,
-                &c.appeal_counter_evidence_hash,
-            ) {
+            let appeal = match (c.appeal_submitted_at_secs, &c.appeal_counter_evidence_hash) {
                 (Some(ts), Some(hash)) => Some(AppealSubmission {
                     submitted_at: Timestamp::from_secs(ts),
                     counter_evidence_hash: hash.clone(),
@@ -1819,7 +1816,9 @@ impl NodeStateStore {
         let payload_len = u32::try_from(payload_bytes.len())
             .map_err(|_| NodeError::Io("WAL payload exceeds u32".into()))?;
         if payload_len > MAX_WAL_FRAME_LEN {
-            return Err(NodeError::Io("WAL payload exceeds MAX_WAL_FRAME_LEN".into()));
+            return Err(NodeError::Io(
+                "WAL payload exceeds MAX_WAL_FRAME_LEN".into(),
+            ));
         }
 
         let mut hasher = Sha256::new();

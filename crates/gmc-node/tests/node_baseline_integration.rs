@@ -54,10 +54,8 @@ struct TempNodeDir(PathBuf);
 impl TempNodeDir {
     fn new(prefix: &str) -> Self {
         let id = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "gmc-node-it-{prefix}-{}-{id}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("gmc-node-it-{prefix}-{}-{id}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp test dir");
         TempNodeDir(dir)
@@ -105,7 +103,10 @@ fn real_ed25519_all_wired_operations_and_operator_key_hygiene() {
             .permissions()
             .mode()
             & 0o777;
-        assert_eq!(mode, 0o600, "operator.key must carry strict 0600 permissions");
+        assert_eq!(
+            mode, 0o600,
+            "operator.key must carry strict 0600 permissions"
+        );
     }
 
     // Check Debug redaction on OperatorKeypair.
@@ -354,7 +355,9 @@ fn real_ed25519_all_wired_operations_and_operator_key_hygiene() {
 
     // Verify operator secret seed hex NEVER appears in status JSON, snapshot.json, or wal.log!
     let status_json = serde_json::to_string(&node.status()).unwrap();
-    let snap_raw = String::from_utf8_lossy(&fs::read(NodeStateStore::snapshot_path(dir.path())).unwrap()).into_owned();
+    let snap_raw =
+        String::from_utf8_lossy(&fs::read(NodeStateStore::snapshot_path(dir.path())).unwrap())
+            .into_owned();
     let wal_raw = hex::encode(fs::read(NodeStateStore::wal_path(dir.path())).unwrap());
     assert!(!status_json.contains(&operator_secret_hex));
     assert!(!snap_raw.contains(&operator_secret_hex));
@@ -477,7 +480,11 @@ fn cross_node_state_root_determinism_and_wal_crash_recovery() {
             approve: true,
         });
         let outcome = node
-            .resolve_appeal("cmp-1", &appeal_ballots, Timestamp::from_secs(1_700_000_045))
+            .resolve_appeal(
+                "cmp-1",
+                &appeal_ballots,
+                Timestamp::from_secs(1_700_000_045),
+            )
             .unwrap();
         assert!(matches!(outcome, AppealOutcome::Overturned { .. }));
         let bob_pocket_restored = node.identities().binding.pocket_by_key(&bob_fay).unwrap();
@@ -565,12 +572,7 @@ fn l2_to_l1_batch_triggers_corrupted_proof_rejection_and_non_monetary_iron_law()
     let t0 = Timestamp::from_secs(0);
     let op_vk = node.operator_verifying_key().clone();
     let op_ifay = node.register_ifay(&op_vk, t0).unwrap();
-    let op_pocket_initial = node
-        .identities()
-        .binding
-        .pocket(&op_ifay)
-        .unwrap()
-        .clone();
+    let op_pocket_initial = node.identities().binding.pocket(&op_ifay).unwrap().clone();
 
     let root_before_monetary = node.state_root();
     assert_eq!(
@@ -578,9 +580,7 @@ fn l2_to_l1_batch_triggers_corrupted_proof_rejection_and_non_monetary_iron_law()
         Err(GmcError::OperationNotAllowed)
     );
     assert_eq!(
-        node.reject_monetary_request(&MonetaryRequest::purchase_recognition(
-            "gmc-base", "1 BTC"
-        )),
+        node.reject_monetary_request(&MonetaryRequest::purchase_recognition("gmc-base", "1 BTC")),
         Err(GmcError::OperationNotAllowed)
     );
     assert_eq!(node.state_root(), root_before_monetary);
@@ -652,9 +652,7 @@ fn l2_to_l1_batch_triggers_corrupted_proof_rejection_and_non_monetary_iron_law()
     assert_eq!(node.l2().buffered_len(), 0);
 
     // 5. Block production charges `0` fee and grants `0` operator reward!
-    let blk = node
-        .produce_block(Timestamp::from_secs(120))
-        .unwrap();
+    let blk = node.produce_block(Timestamp::from_secs(120)).unwrap();
     assert_eq!(blk.fee_charged_raw, 0);
     assert_eq!(blk.operator_reward_raw, 0);
     let op_pocket_after = node.identities().binding.pocket(&op_ifay).unwrap();

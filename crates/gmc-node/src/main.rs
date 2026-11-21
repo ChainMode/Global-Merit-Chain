@@ -155,8 +155,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
             node.shutdown()?;
             println!(
                 "{}",
-                serde_json::to_string_pretty(&st)
-                    .map_err(|e| NodeError::Io(e.to_string()))?
+                serde_json::to_string_pretty(&st).map_err(|e| NodeError::Io(e.to_string()))?
             );
             Ok(())
         }
@@ -165,8 +164,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
             let st = node.status();
             println!(
                 "{}",
-                serde_json::to_string_pretty(&st)
-                    .map_err(|e| NodeError::Io(e.to_string()))?
+                serde_json::to_string_pretty(&st).map_err(|e| NodeError::Io(e.to_string()))?
             );
             Ok(())
         }
@@ -176,8 +174,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
             node.shutdown()?;
             println!(
                 "{}",
-                serde_json::to_string_pretty(&receipt)
-                    .map_err(|e| NodeError::Io(e.to_string()))?
+                serde_json::to_string_pretty(&receipt).map_err(|e| NodeError::Io(e.to_string()))?
             );
             Ok(())
         }
@@ -186,8 +183,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
             let summary = run_cluster_demo(&data_dir, validators, &chain_id)?;
             println!(
                 "{}",
-                serde_json::to_string_pretty(&summary)
-                    .map_err(|e| NodeError::Io(e.to_string()))?
+                serde_json::to_string_pretty(&summary).map_err(|e| NodeError::Io(e.to_string()))?
             );
             Ok(())
         }
@@ -255,8 +251,7 @@ fn run_cli(args: Vec<String>) -> NodeResult<()> {
             let bounty_count = node.testnet_state().bounties.len();
             let proposal_count = node.testnet_state().proposals.len();
             let shared = Arc::new(Mutex::new(node));
-            let handle =
-                start_control_server(shared, &bind_addr, allow_public_bind, max_requests)?;
+            let handle = start_control_server(shared, &bind_addr, allow_public_bind, max_requests)?;
             let url = format!("http://{}", handle.local_addr());
             println!(
                 "{}",
@@ -346,12 +341,26 @@ fn run_demo(config: NodeConfig) -> NodeResult<()> {
         t0,
     )?;
     let depth = Ratio::new(Decimal::from_raw(800_000)).unwrap();
-    node.record_interaction(&alice_fay, &bob_fay, depth, Timestamp::from_secs(1_700_000_020))?;
-    node.record_interaction(&bob_fay, &alice_fay, depth, Timestamp::from_secs(1_700_000_025))?;
+    node.record_interaction(
+        &alice_fay,
+        &bob_fay,
+        depth,
+        Timestamp::from_secs(1_700_000_020),
+    )?;
+    node.record_interaction(
+        &bob_fay,
+        &alice_fay,
+        depth,
+        Timestamp::from_secs(1_700_000_025),
+    )?;
     let intimacy_raw = node
         .relationships()
         .get_edge(&alice_fay, &bob_fay)
-        .map(|e| compute_intimacy(e, Timestamp::from_secs(1_700_000_030)).value().raw())
+        .map(|e| {
+            compute_intimacy(e, Timestamp::from_secs(1_700_000_030))
+                .value()
+                .raw()
+        })
         .unwrap_or(0);
 
     // 3. L2 contribution ingestion -> zero-fee / zero-reward L1 block settlement

@@ -93,10 +93,14 @@ impl NodeConfig {
     /// Validates startup configuration before touching disk or opening sockets.
     pub fn validate(&self) -> NodeResult<()> {
         if self.data_dir.as_os_str().is_empty() {
-            return Err(NodeError::ConfigInvalid("data_dir must not be empty".into()));
+            return Err(NodeError::ConfigInvalid(
+                "data_dir must not be empty".into(),
+            ));
         }
         if self.chain_id.trim().is_empty() {
-            return Err(NodeError::ConfigInvalid("chain_id must not be empty".into()));
+            return Err(NodeError::ConfigInvalid(
+                "chain_id must not be empty".into(),
+            ));
         }
         if let Some(addr_str) = &self.control_addr {
             let sock: SocketAddr = addr_str.parse().map_err(|e| {
@@ -175,11 +179,7 @@ struct NodeL1ProofSink<'a> {
 }
 
 impl L1ProofSink for NodeL1ProofSink<'_> {
-    fn submit_batch_proof(
-        &mut self,
-        batch_root: BatchRoot,
-        proof: &L2BatchProof,
-    ) -> GmcResult<()> {
+    fn submit_batch_proof(&mut self, batch_root: BatchRoot, proof: &L2BatchProof) -> GmcResult<()> {
         // Map the cryptographic SHA-256 commitment onto L1's 32-byte StateRoot slot when
         // verified; pass an invalid `L1BatchProof` on mismatch so `L1Settlement` enforces
         // its Property 30 rejection guard and audit log.
@@ -342,7 +342,10 @@ impl WireSignedOperation {
                 guardians,
                 threshold,
             } => WireOperationPayload::ConfigureGuardians {
-                guardians_hex: guardians.iter().map(|g| hex::encode(g.as_bytes())).collect(),
+                guardians_hex: guardians
+                    .iter()
+                    .map(|g| hex::encode(g.as_bytes()))
+                    .collect(),
                 threshold: *threshold,
             },
             OperationPayload::RecoveryApproval {
@@ -553,8 +556,7 @@ impl NodeRuntime {
         run_ed25519_kat_self_test(&registry)?;
 
         let (pairs, validator_set) = ValidatorSet::deterministic_local_committee(4)?;
-        let operator =
-            OperatorKeyStore::init_with_seed(&config.data_dir, &registry, pairs[0].0)?;
+        let operator = OperatorKeyStore::init_with_seed(&config.data_dir, &registry, pairs[0].0)?;
         let seeds = pairs
             .into_iter()
             .map(|(s, info)| (Zeroizing::new(s), info.validator_id))
@@ -570,7 +572,8 @@ impl NodeRuntime {
         }
         let mut runtime = Self::open(config)?;
         let (pairs, expected_set) = ValidatorSet::deterministic_local_committee(4)?;
-        let matches_local_committee = runtime.validator_set.total_count() == expected_set.total_count()
+        let matches_local_committee = runtime.validator_set.total_count()
+            == expected_set.total_count()
             && runtime
                 .validator_set
                 .validators()
@@ -692,6 +695,10 @@ impl NodeRuntime {
 
     pub fn identities(&self) -> &IdentityState {
         &self.identities
+    }
+
+    pub(crate) fn identities_mut(&mut self) -> &mut IdentityState {
+        &mut self.identities
     }
 
     pub fn relationships(&self) -> &RelationshipGraph {
@@ -823,10 +830,7 @@ impl NodeRuntime {
 
         if !existed {
             self.l1
-                .store_identity_registration(IdentityRegistrationRecord::new(
-                    id.to_fay_id(),
-                    now,
-                ));
+                .store_identity_registration(IdentityRegistrationRecord::new(id.to_fay_id(), now));
             self.persist_wal("register_ifay")?;
         }
         Ok(id)
@@ -903,8 +907,13 @@ impl NodeRuntime {
         privacy_tier: PrivacyTier,
         registered_at: Timestamp,
     ) -> NodeResult<()> {
-        self.relationships
-            .register_bilateral(a, b, relationship_type, privacy_tier, registered_at)?;
+        self.relationships.register_bilateral(
+            a,
+            b,
+            relationship_type,
+            privacy_tier,
+            registered_at,
+        )?;
         self.persist_wal("register_relationship")?;
         Ok(())
     }
@@ -1427,7 +1436,8 @@ impl NodeRuntime {
             self.equivocations.push(evidence.clone());
         }
         let mut persisted = self.export_persisted_state();
-        self.store.append_wal("apply_equivocation", &mut persisted)?;
+        self.store
+            .append_wal("apply_equivocation", &mut persisted)?;
         self.store.write_atomic_snapshot(&persisted)?;
         Ok(ejected_id)
     }

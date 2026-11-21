@@ -470,10 +470,7 @@ impl BlockProposal {
     }
 
     /// Recomputes `block_hash` and re-signs a mutated proposal (for Byzantine fault-injection tests).
-    pub fn resign_for_test(
-        mut proposal: Self,
-        seed: &[u8; ED25519_SEED_LEN],
-    ) -> NodeResult<Self> {
+    pub fn resign_for_test(mut proposal: Self, seed: &[u8; ED25519_SEED_LEN]) -> NodeResult<Self> {
         proposal.block_hash = Self::compute_block_hash(
             &proposal.chain_id,
             proposal.height,
@@ -621,9 +618,7 @@ impl SignedConsensusVote {
         expected_chain_id: &str,
     ) -> NodeResult<()> {
         if self.chain_id != expected_chain_id {
-            return Err(NodeError::ConsensusInvalid(
-                "vote chain_id mismatch".into(),
-            ));
+            return Err(NodeError::ConsensusInvalid("vote chain_id mismatch".into()));
         }
         let Some(info) = validator_set.get(&self.validator_id) else {
             return Err(NodeError::ConsensusInvalid(format!(
@@ -681,9 +676,7 @@ impl QuorumCertificate {
     ) -> NodeResult<()> {
         debug_assert_eq!(VALIDATOR_REWARD, 0);
         if self.chain_id != expected_chain_id {
-            return Err(NodeError::ConsensusInvalid(
-                "QC chain_id mismatch".into(),
-            ));
+            return Err(NodeError::ConsensusInvalid("QC chain_id mismatch".into()));
         }
         if self.step != expected_step {
             return Err(NodeError::ConsensusInvalid("QC step mismatch".into()));
