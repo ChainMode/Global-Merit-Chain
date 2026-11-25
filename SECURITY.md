@@ -4,8 +4,8 @@
 
 | Version / Branch | Status | Scope |
 |---|---|---|
-| `main` (`0.2.x`) | Supported | `gmc-core`, `gmc-identity`, `gmc-node` BFT testnet & `Meritora Desktop` preview |
-| `< 0.2.0` | Unsupported | Early single-node / pre-BFT snapshots |
+| `main` (`0.3.x`, latest `v0.3.0`) | Supported | `gmc-core` (including `consume_priority` `minMerit` floor), `gmc-identity`, `gmc-node` local/LAN 4-node BFT devnet & JSON-RPC bridge, `Meritora Desktop` preview |
+| `< 0.3.0` | Unsupported | Pre-`v0.3.0` / early single-node snapshots |
 
 ## GMChain Security Model Scope
 
